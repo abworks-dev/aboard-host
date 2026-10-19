@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "presets": {
+    "ab-engineering-baseline": {
+      "version": "0.1.0",
+      "source": "local",
+      "manifest_hash": "sha256:367a195f6886899c3d68fb420d619eb24521f890536f9622955972ccd8ae1960",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "dsh": [
+          "speckit.ab.run",
+          "speckit.specify",
+          "speckit.plan",
+          "speckit.tasks",
+          "speckit.implement"
+        ]
+      },
+      "registered_skills": {
+        "dsh": [
+          "speckit-ab-run",
+          "speckit-specify",
+          "speckit-plan",
+          "speckit-tasks",
+          "speckit-implement"
+        ]
+      },
+      "installed_at": "2026-10-18T03:33:04.394395+00:00"
+    }
+  }
+}

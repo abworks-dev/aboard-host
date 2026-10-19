@@ -1,0 +1,5 @@
+# These bytes are checksum/fixture inputs, including on Windows with autocrlf.
+/internal/storage/sqlite/migrations/*.sql text eol=lf
+/contracts/openapi.json text eol=lf
+/testdata/contracts/*.json text eol=lf
+/internal/protocol/openapi_generated.go text eol=lf

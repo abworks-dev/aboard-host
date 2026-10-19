@@ -1,0 +1,3417 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Aboard Host 001",
+    "version": "1.0.0",
+    "description": "Single structural authority for feature 001; behavior in specs/001-host-workspace-foundation/contracts/api.md, digest byte protocol in data-model.md §4. Designed, not implemented or operational acceptance."
+  },
+  "security": [
+    {
+      "localSession": []
+    }
+  ],
+  "x-transport-policy": {
+    "bind": "explicit loopback authority only",
+    "host": "exact actual listener authority; reject absolute-form and ambiguous Host",
+    "origin": "reject any Origin and browser preflight; no CORS/cookies",
+    "sessionDelivery": "SID-protected, peer/server-verified local operator named pipe only; no public HTTP login",
+    "parser": [
+      "strict UTF-8",
+      "no BOM",
+      "no duplicate keys",
+      "no unknown fields",
+      "no lone surrogate",
+      "no NUL in text",
+      "no normalization",
+      "canonical UUID/decimal validation"
+    ],
+    "requestMaxBytes": 1048576,
+    "contentType": "application/json; no other media type",
+    "disconnect": "detach waiter only; never cancel accepted business operation"
+  },
+  "x-operation-policy": {
+    "workspaceKey": [
+      "workspaceId",
+      "operationId"
+    ],
+    "installationKey": [
+      "installationId",
+      "operationId"
+    ],
+    "existingKey": "current authorization + same actor/input; return original association before epoch/expiry/base checks, never re-admit",
+    "changedInput": "OPERATION_KEY_REUSE; do not leak another actor receipt",
+    "unknown": "fence dependent writes; prove old physical completion and fresh consistent exclusive view; missing receipt alone is not rollback; no replay or new key retry",
+    "close": "process-local coordination history, not durable save receipt; after restart unavailable history is not success",
+    "registration": "current installation identity/grants never imported from directory",
+    "compatibility": "format=2; schema=1 each DB; known ordered ledger/checksums + user_version must agree; open/inspect never upgrade or seed",
+    "capacity": "per workspace 32 and installation 64 unfinished HTTP operations; reject before admission, reserve progress for investigation/drain; not Native/Build budget"
+  },
+  "x-deferred-capabilities": [
+    "object storage",
+    "generic file Apply",
+    "Build",
+    "Studio",
+    "Run",
+    "Provider",
+    "plugins",
+    "SSE",
+    "backup",
+    "clone",
+    "existing-schema upgrade",
+    "cross-workspace collaboration"
+  ],
+  "paths": {
+    "/v1/context": {
+      "get": {
+        "operationId": "getContext",
+        "summary": "Current authenticated identity/capabilities; no unauthorized workspace listing.",
+        "x-required-action": "authenticated",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/workspace-creations": {
+      "post": {
+        "operationId": "createWorkspace",
+        "summary": "Explicit empty-root create; intent/genesis/descriptor/registration+grant all confirmed before full success. No cross-carrier transaction claim.",
+        "x-required-action": "installation.operator",
+        "responses": {
+          "201": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace-inspections": {
+      "post": {
+        "operationId": "inspectWorkspace",
+        "summary": "Freeze existing closed source without writes; inspect scratch read-only. No register, repair, migration, activation or Provider.",
+        "x-required-action": "installation.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace-registrations": {
+      "post": {
+        "operationId": "registerWorkspace",
+        "summary": "Current tenant/operator and allowed root; same physical identity may return existing registration, copied UUID rejected.",
+        "x-required-action": "installation.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/relink": {
+      "post": {
+        "operationId": "relinkWorkspace",
+        "summary": "Closed/drained/known same-volume rename with original physical ID; no clone or cross-install import.",
+        "x-required-action": "workspace.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelinkWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/open": {
+      "post": {
+        "operationId": "openWorkspace",
+        "summary": "OPEN_EXISTING only: current registration/authorization, real writer exclusion, identity/format/schema/ledger/digests verified. No seeding or automatic migration.",
+        "x-required-action": "workspace.open",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}": {
+      "get": {
+        "operationId": "getWorkspace",
+        "summary": "Separate business/lifecycle/access/integrity/persistence state; closed is not business-readable.",
+        "x-required-action": "workspace.read",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/workspaces/{workspaceId}/close": {
+      "post": {
+        "operationId": "closeWorkspace",
+        "summary": "Stop new admission, drain accepted physical work and determine persistence before DB/lock release; client disconnect does not cancel.",
+        "x-required-action": "workspace.close",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseWorkspace"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/records": {
+      "get": {
+        "operationId": "listRecords",
+        "summary": "Authorized current records only, workspace-bound opaque cursor; never global currentWorkspace.",
+        "x-required-action": "workspace.read",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/workspaces/{workspaceId}/records/{resourceId}": {
+      "get": {
+        "operationId": "getRecord",
+        "summary": "Composite workspace/resource lookup after current authorization; cross-workspace IDs do not reveal content.",
+        "x-required-action": "workspace.read",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextRecordView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/workspaces/{workspaceId}/record-previews": {
+      "post": {
+        "operationId": "previewRecord",
+        "summary": "Non-executable text candidate bound to actor/epoch/base/digest/previewVersion/expiry; no formal Head/version change.",
+        "x-required-action": "workspace.write",
+        "responses": {
+          "201": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRecord"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/record-commits": {
+      "post": {
+        "operationId": "commitRecord",
+        "summary": "Authorize first, investigate existing same-scope/key/input before epoch/applied/expiry/base checks; only new key admits a write. Durable admission then one owner transaction atomically commits version/Head/receipt. Unknown never replays.",
+        "x-required-action": "workspace.write",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitRecord"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspaceId}/operations/{operationId}": {
+      "get": {
+        "operationId": "getWorkspaceOperation",
+        "summary": "Same actor or explicit operator investigation permission; persistent save association or process-local close history. Closed without trusted view requires authorized reopen, not automatic open.",
+        "x-required-action": "workspace.read",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/workspaces/{workspaceId}/operations/{operationId}/reconcile": {
+      "post": {
+        "operationId": "reconcileWorkspaceOperation",
+        "summary": "Investigate only under exclusion and physical-end/storage-recovery gates; missing receipt alone is not rollback, never retry/repair. Close history may be unavailable after restart.",
+        "x-required-action": "workspace.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "x-request-body-forbidden": true
+      }
+    },
+    "/v1/installation-operations/{operationId}": {
+      "get": {
+        "operationId": "getInstallationOperation",
+        "summary": "Read original create/register/relink evidence only; do not replay creation.",
+        "x-required-action": "installation.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true
+      }
+    },
+    "/v1/installation-operations/{operationId}/reconcile": {
+      "post": {
+        "operationId": "reconcileInstallationOperation",
+        "summary": "Only prove or finish original registration under current authorization and matching original intent/genesis/identity. No recreate, seed, new IDs or cross-database atomicity.",
+        "x-required-action": "installation.operator",
+        "responses": {
+          "200": {
+            "description": "Confirmed result; not a promise about later delivery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Restricted explicit failure; unknown persistence requires investigation, never automatic retry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted/ongoing/unknown; not formal save success or closed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Same-authority relative operation path; no token or original filesystem path.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/(workspaces/[0-9a-f-]+/operations|installation-operations)/[0-9a-f-]+$"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UUID"
+            }
+          }
+        ],
+        "x-authorization-before-target-access": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileInstallation"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "localSession": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque short-lived session",
+        "description": "Verified current installation/tenant/principal and grants on every request and before business transaction. Not JWT claims or workspace-provided authorization."
+      }
+    },
+    "schemas": {
+      "UUID": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+        "description": "Canonical lowercase UUIDv4; 16 digest bytes follow display hex order, never GUID memory order."
+      },
+      "Revision": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,18})$",
+        "description": "Canonical unsigned decimal string in [0,9223372036854775807]. Numeric JSON, leading zeroes and overflow rejected.",
+        "x-maximum-decimal": "9223372036854775807"
+      },
+      "PositiveRevision": {
+        "$ref": "#/components/schemas/Revision",
+        "not": {
+          "const": "0"
+        }
+      },
+      "Digest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "Title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "not": {
+          "pattern": "\u0000"
+        },
+        "x-unicode-scalar-count": true,
+        "x-no-normalization": true
+      },
+      "Body": {
+        "type": "string",
+        "not": {
+          "pattern": "\u0000"
+        },
+        "x-max-utf8-bytes": 65536,
+        "x-no-normalization": true
+      },
+      "Path": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32767,
+        "not": {
+          "pattern": "\u0000"
+        },
+        "description": "Locator only, never an identity or grant. Operator, allowed-root, local NTFS and physical path checks required before target access. Never echoed in ordinary DTOs/errors."
+      },
+      "CorrelationId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "Capability": {
+        "type": "string",
+        "enum": [
+          "installation.operator",
+          "workspace.open",
+          "workspace.close",
+          "workspace.read",
+          "workspace.write",
+          "workspace.operator",
+          "text.read",
+          "text.preview",
+          "text.commit"
+        ]
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "UNAUTHENTICATED",
+          "FORBIDDEN",
+          "NOT_FOUND",
+          "INVALID_INPUT",
+          "REQUEST_TOO_LARGE",
+          "INVALID_CANDIDATE",
+          "STALE_BASELINE",
+          "IDENTITY_CONFLICT",
+          "WRITER_BUSY",
+          "DIRECTORY_NOT_EMPTY",
+          "STALE_HANDLE",
+          "OPERATION_KEY_REUSE",
+          "INCOMPLETE_DIRECTORY",
+          "MISSING_DATABASE",
+          "CORRUPT_DATABASE",
+          "DIGEST_MISMATCH",
+          "UNSUPPORTED_FORMAT",
+          "UNSUPPORTED_SCHEMA",
+          "UNSUPPORTED_PATH",
+          "INSPECTION_UNAVAILABLE",
+          "RECOVERY_REQUIRED",
+          "REGISTRATION_PENDING",
+          "WORKSPACE_CLOSED",
+          "WORKSPACE_DRAINING",
+          "OPERATION_HISTORY_UNAVAILABLE",
+          "COMMIT_UNKNOWN",
+          "INSTALLATION_STATE_UNKNOWN",
+          "CAPACITY_LIMIT",
+          "CAPABILITY_UNAVAILABLE",
+          "REVISION_EXHAUSTED",
+          "VIEW_DELIVERY_FAILED"
+        ]
+      },
+      "PrincipalView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "installationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "tenantId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "principalId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            }
+          }
+        },
+        "required": [
+          "installationId",
+          "tenantId",
+          "principalId",
+          "capabilities"
+        ]
+      },
+      "PersistenceHealth": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown",
+              "unavailable"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "installation"
+            ]
+          },
+          "reasonCode": {
+            "$ref": "#/components/schemas/ErrorCode"
+          }
+        },
+        "required": [
+          "state",
+          "scope"
+        ]
+      },
+      "WorkspaceView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "tenantId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "locationLabel": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Redacted operator-approved label, never absolute path."
+          },
+          "businessState": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unavailable"
+            ]
+          },
+          "directoryLifecycle": {
+            "type": "string",
+            "enum": [
+              "unregistered",
+              "registeredClosed",
+              "opening",
+              "open",
+              "draining",
+              "closed",
+              "rejected"
+            ]
+          },
+          "accessMode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "writable"
+            ]
+          },
+          "integrity": {
+            "type": "string",
+            "enum": [
+              "unchecked",
+              "valid",
+              "corrupt",
+              "incompatible",
+              "incomplete",
+              "conflict"
+            ]
+          },
+          "persistenceHealth": {
+            "$ref": "#/components/schemas/PersistenceHealth"
+          },
+          "openEpoch": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "availableCapabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            }
+          }
+        },
+        "required": [
+          "workspaceId",
+          "tenantId",
+          "locationLabel",
+          "businessState",
+          "directoryLifecycle",
+          "accessMode",
+          "integrity",
+          "persistenceHealth",
+          "availableCapabilities"
+        ]
+      },
+      "InspectionView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "tenantId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "formatVersion": {
+            "type": "integer",
+            "const": 2
+          },
+          "integrity": {
+            "type": "string",
+            "const": "valid"
+          },
+          "accessMode": {
+            "type": "string",
+            "const": "none"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "tenantId",
+          "formatVersion",
+          "integrity",
+          "accessMode"
+        ],
+        "description": "Successful closed/quiescent source inspection only. Does not register, authorize or open the target; unsafe/incomplete input returns an explicit error."
+      },
+      "TextRecordView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "resourceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "version": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "workspaceRevision": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "title": {
+            "$ref": "#/components/schemas/Title"
+          },
+          "body": {
+            "$ref": "#/components/schemas/Body"
+          },
+          "contentDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "resourceId",
+          "version",
+          "workspaceRevision",
+          "title",
+          "body",
+          "contentDigest",
+          "operationId"
+        ]
+      },
+      "RecordList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TextRecordView"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "workspaceId",
+          "items"
+        ]
+      },
+      "Diff": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "beforeVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "beforeTitle": {
+            "$ref": "#/components/schemas/Title"
+          },
+          "beforeBody": {
+            "$ref": "#/components/schemas/Body"
+          },
+          "afterTitle": {
+            "$ref": "#/components/schemas/Title"
+          },
+          "afterBody": {
+            "$ref": "#/components/schemas/Body"
+          }
+        },
+        "required": [
+          "afterTitle",
+          "afterBody"
+        ]
+      },
+      "CandidateValidation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "valid"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "description": "Returned only after Host structural/dependency/baseline checks; not execution authority."
+      },
+      "CandidateView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "candidateId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "resourceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "create-text",
+              "update-text"
+            ]
+          },
+          "baseRevision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "baseDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "title": {
+            "$ref": "#/components/schemas/Title"
+          },
+          "body": {
+            "$ref": "#/components/schemas/Body"
+          },
+          "contentDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "candidateDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "previewVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/CandidateValidation"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/Diff"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "candidateId",
+          "resourceId",
+          "kind",
+          "baseRevision",
+          "title",
+          "body",
+          "contentDigest",
+          "candidateDigest",
+          "previewVersion",
+          "expiresAt",
+          "validation",
+          "diff"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "update-text"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "baseDigest"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "baseDigest"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "candidateId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "resourceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "newVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "newRevision": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          },
+          "contentDigest": {
+            "$ref": "#/components/schemas/Digest"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "operationId",
+          "candidateId",
+          "resourceId",
+          "newVersion",
+          "newRevision",
+          "contentDigest"
+        ]
+      },
+      "OperationView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "workspace"
+            ]
+          },
+          "workspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "create",
+              "register",
+              "relink",
+              "save",
+              "close"
+            ]
+          },
+          "logicalState": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "committed",
+              "rejected",
+              "unknown"
+            ]
+          },
+          "physicalState": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "executing",
+              "reconciling",
+              "drained"
+            ]
+          },
+          "persistenceState": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown",
+              "unavailable"
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/Receipt"
+          },
+          "reasonCode": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "correlationId": {
+            "$ref": "#/components/schemas/CorrelationId"
+          }
+        },
+        "required": [
+          "operationId",
+          "scope",
+          "kind",
+          "logicalState",
+          "physicalState",
+          "persistenceState",
+          "correlationId"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "scope": {
+                  "const": "workspace"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "workspaceId"
+              ]
+            }
+          }
+        ],
+        "description": "Independent logical/physical/persistence axes. Save receipts persist; close coordination history is process-local and loss after restart is OPERATION_HISTORY_UNAVAILABLE, not inferred success."
+      },
+      "ErrorView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "rejected",
+              "unknown"
+            ]
+          },
+          "correlationId": {
+            "$ref": "#/components/schemas/CorrelationId"
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "installation",
+              "workspace"
+            ]
+          },
+          "retryPolicy": {
+            "type": "string",
+            "enum": [
+              "none",
+              "investigate",
+              "newPreview"
+            ]
+          },
+          "safeMessage": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "code",
+          "outcome",
+          "correlationId",
+          "retryPolicy",
+          "safeMessage"
+        ],
+        "description": "No paths, SQL, Win32 raw errors, text, tokens or secrets. Unknown is never safe-to-retry; retain original workspace and operation key."
+      },
+      "CreateWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "path": {
+            "$ref": "#/components/schemas/Path"
+          },
+          "displayName": {
+            "$ref": "#/components/schemas/Title"
+          }
+        },
+        "required": [
+          "operationId",
+          "path",
+          "displayName"
+        ]
+      },
+      "InspectWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "$ref": "#/components/schemas/Path"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "RegisterWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "path": {
+            "$ref": "#/components/schemas/Path"
+          },
+          "expectedWorkspaceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "expectedIdentityDigest": {
+            "$ref": "#/components/schemas/Digest"
+          }
+        },
+        "required": [
+          "operationId",
+          "path",
+          "expectedWorkspaceId",
+          "expectedIdentityDigest"
+        ]
+      },
+      "RelinkWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "path": {
+            "$ref": "#/components/schemas/Path"
+          },
+          "expectedRegistrationVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          }
+        },
+        "required": [
+          "operationId",
+          "path",
+          "expectedRegistrationVersion"
+        ]
+      },
+      "OpenWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedRegistrationVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          }
+        },
+        "required": [
+          "expectedRegistrationVersion"
+        ]
+      },
+      "CloseWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "openEpoch": {
+            "$ref": "#/components/schemas/UUID"
+          }
+        },
+        "required": [
+          "operationId",
+          "openEpoch"
+        ]
+      },
+      "PreviewRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "openEpoch": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "create-text",
+              "update-text"
+            ]
+          },
+          "resourceId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "baseRevision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "baseDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "title": {
+            "$ref": "#/components/schemas/Title"
+          },
+          "body": {
+            "$ref": "#/components/schemas/Body"
+          }
+        },
+        "required": [
+          "openEpoch",
+          "kind",
+          "baseRevision",
+          "title",
+          "body"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "update-text"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "resourceId",
+                "baseDigest"
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "resourceId"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "baseDigest"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CommitRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "openEpoch": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "candidateId": {
+            "$ref": "#/components/schemas/UUID"
+          },
+          "candidateDigest": {
+            "$ref": "#/components/schemas/Digest"
+          },
+          "previewVersion": {
+            "$ref": "#/components/schemas/PositiveRevision"
+          }
+        },
+        "required": [
+          "operationId",
+          "openEpoch",
+          "candidateId",
+          "candidateDigest",
+          "previewVersion"
+        ]
+      },
+      "InstallationPhase": {
+        "type": "string",
+        "enum": [
+          "intentRecorded",
+          "directoryPrepared",
+          "genesisConfirmed",
+          "descriptorPublished",
+          "registrationConfirmed",
+          "rejected",
+          "unknown",
+          "needsReview"
+        ]
+      },
+      "ReconcileInstallation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedPhase": {
+            "$ref": "#/components/schemas/InstallationPhase"
+          }
+        },
+        "required": [
+          "expectedPhase"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Local tools, caches, diagnostics and machine state (never commit)
+.data/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.log
+# Share only official project skills, never DSH local state
+.dsh/*
+!.dsh/skills/
+# Future build output
+/bin/
+/dist/

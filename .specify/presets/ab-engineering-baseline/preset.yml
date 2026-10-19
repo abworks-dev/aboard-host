@@ -1,0 +1,50 @@
+schema_version: "1.0"
+
+preset:
+  id: "ab-engineering-baseline"
+  name: "AB Agent-first Baseline"
+  version: "0.1.0"
+  description: "Evidence-driven, bounded-autonomy development with minimal human interruption."
+  author: "AB"
+  repository: "https://github.com/abworks-dev/spec-kit-preset-ab"
+  license: "MIT"
+
+requires:
+  speckit_version: "==1.2.1"
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.ab.run"
+      file: "commands/speckit.ab.run.md"
+      description: "Complete a development goal with adaptive planning and verification."
+      strategy: "replace"
+    - type: "command"
+      name: "speckit.specify"
+      file: "commands/speckit.specify.md"
+      description: "Create a minimal, testable feature specification."
+      replaces: "speckit.specify"
+      strategy: "replace"
+    - type: "command"
+      name: "speckit.plan"
+      file: "commands/speckit.plan.md"
+      description: "Plan at the depth required by uncertainty and impact."
+      replaces: "speckit.plan"
+      strategy: "replace"
+    - type: "command"
+      name: "speckit.tasks"
+      file: "commands/speckit.tasks.md"
+      description: "Create dependency-aware tasks with appropriate verification."
+      replaces: "speckit.tasks"
+      strategy: "replace"
+    - type: "command"
+      name: "speckit.implement"
+      file: "commands/speckit.implement.md"
+      description: "Implement, verify, diagnose, repair, and report evidence."
+      replaces: "speckit.implement"
+      strategy: "replace"
+
+tags:
+  - "agent-first"
+  - "bounded-autonomy"
+  - "engineering"

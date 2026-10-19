@@ -1,0 +1,9 @@
+{
+  "module": "modernc.org/libc",
+  "version": "v1.77.1",
+  "sqliteVersion": "v1.60.1",
+  "source": "libc_windows.go",
+  "sourceSHA256": "cb863451675c6e3664c8eb403ad9e775eecb18c45c6419d523f24e8b1c5d3164",
+  "old": "\terr := windows.FlushFileBuffers(windows.Handle(hFile))\n\tif err != nil {\n\t\tt.setErrno(err)\n\t\treturn -1\n\t}\n\treturn 1\n",
+  "new": "\terr := windows.FlushFileBuffers(windows.Handle(hFile))\n\tif err != nil {\n\t\tt.setErrno(err)\n\t\treturn 0\n\t}\n\treturn 1\n"
+}
