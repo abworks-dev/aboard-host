@@ -28,7 +28,7 @@ type DirectoryReport struct {
 	ScopeEstablished bool
 }
 
-func frozenDescriptorBytes(ctx context.Context, source *platform.File) (data []byte, err error) {
+func frozenDescriptorBytes(ctx context.Context, source *platform.File, resources *Resources) (data []byte, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -41,7 +41,8 @@ func frozenDescriptorBytes(ctx context.Context, source *platform.File) (data []b
 		return nil, err
 	}
 	file := os.NewFile(uintptr(duplicate), "frozen-descriptor")
-	defer func() { err = errors.Join(err, file.Close()) }()
+	fileOwner := resources.own(file)
+	defer func() { err = errors.Join(err, resources.closeOwned(fileOwner)) }()
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -58,16 +59,25 @@ func frozenDescriptorBytes(ctx context.Context, source *platform.File) (data []b
 // InspectDirectory requires both a trusted expected tenant and a mandatory
 // current-authorization recheck. It cannot opt out of the metadata scope gate.
 func InspectDirectory(ctx context.Context, root, scratchParent, expectedTenant string, checkCurrent func(context.Context) error) (DirectoryReport, error) {
+	report, resources, err := InspectDirectoryOwned(ctx, root, scratchParent, expectedTenant, checkCurrent)
+	report.Storage, err = finishReport(report.Storage, resources, err)
+	return report, err
+}
+
+// InspectDirectoryOwned transfers resources before any result projection. The
+// caller must Close even on error; unknown physical cleanup must remain owned.
+func InspectDirectoryOwned(ctx context.Context, root, scratchParent, expectedTenant string, checkCurrent func(context.Context) error) (DirectoryReport, *Resources, error) {
 	var descriptor workspace.DirectoryDescriptor
 	known := false
 	if _, err := workspace.NewDirectoryDescriptor(expectedTenant, expectedTenant); err != nil || checkCurrent == nil {
-		return DirectoryReport{}, ErrInspectionScope
+		return DirectoryReport{}, nil, ErrInspectionScope
 	}
 	if err := checkCurrent(ctx); err != nil {
-		return DirectoryReport{}, err
+		return DirectoryReport{}, nil, err
 	}
-	report, err := inspectValidated(ctx, root, scratchParent, os.RemoveAll, func(ctx context.Context, file *platform.File) error {
-		data, err := frozenDescriptorBytes(ctx, file)
+	resources := &Resources{cleanup: os.RemoveAll}
+	report, err := inspectUsing(ctx, root, scratchParent, resources, func(ctx context.Context, file *platform.File, resources *Resources) error {
+		data, err := frozenDescriptorBytes(ctx, file, resources)
 		if err != nil {
 			return err
 		}
@@ -98,7 +108,7 @@ func InspectDirectory(ctx context.Context, root, scratchParent, expectedTenant s
 		descriptor, err = workspace.ParseDirectoryDescriptor(data)
 		return err
 	}, func(ctx context.Context, scratch string, conn *sql.Conn) error {
-		data, err := os.ReadFile(filepath.Join(scratch, "descriptor.json"))
+		data, err := resources.readFile(filepath.Join(scratch, "descriptor.json"))
 		if err != nil {
 			return err
 		}
@@ -124,10 +134,10 @@ func InspectDirectory(ctx context.Context, root, scratchParent, expectedTenant s
 		return sqlite.ValidateDirectorySnapshot(ctx, conn, descriptor)
 	})
 	if checkErr := checkCurrent(ctx); checkErr != nil {
-		return DirectoryReport{Storage: report, ScopeEstablished: known}, checkErr
+		return DirectoryReport{Storage: report, ScopeEstablished: known}, resources, checkErr
 	}
 	if err != nil {
-		return DirectoryReport{Storage: report, ScopeEstablished: known}, err
+		return DirectoryReport{Storage: report, ScopeEstablished: known}, resources, err
 	}
-	return DirectoryReport{Storage: report, Descriptor: descriptor, ScopeEstablished: known}, nil
+	return DirectoryReport{Storage: report, Descriptor: descriptor, ScopeEstablished: known}, resources, nil
 }

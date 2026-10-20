@@ -24,6 +24,7 @@ func (o *WorkspaceOpener) CommitRecord(ctx context.Context, a *Authorization, in
 type acceptedWorkspaceSave struct {
 	resources *openResources
 	admission *sqlite.Admission
+	request   workspace.SaveRequest // original trusted metadata, never a second admission capability
 }
 
 func (a *acceptedWorkspaceSave) Commit(ctx context.Context) (workspace.SaveResult, error) {
@@ -31,7 +32,9 @@ func (a *acceptedWorkspaceSave) Commit(ctx context.Context) (workspace.SaveResul
 	if r.pending || r.quarantined || r.gate == nil {
 		return workspace.SaveResult{Status: workspace.SaveUnknown}, workspace.ErrOpenUncertain
 	}
-	result, err := r.gate.CommitAccepted(ctx, a.admission)
+	result, err := workspaceSaveCommit(ctx, r, a.request, a.admission, func() (workspace.SaveResult, error) {
+		return r.gate.CommitAccepted(ctx, a.admission)
+	})
 	if result.Status == workspace.SaveUnknown || errors.Is(err, sqlite.ErrUnknown) || errors.Is(err, sqlite.ErrFenced) {
 		r.pending = true
 	}
@@ -48,14 +51,16 @@ func (r *openResources) AdmitSave(ctx context.Context, scope workspace.Scope, re
 		result, err := r.gate.Investigate(ctx, request)
 		return result, nil, err
 	}
-	result, admission, err := r.gate.Admit(ctx, request, time.Now())
+	result, admission, err := workspaceSaveAdmit(r, request, func() (workspace.SaveResult, *sqlite.Admission, error) {
+		return r.gate.Admit(ctx, request, time.Now())
+	})
 	if result.Status == workspace.SaveUnknown || errors.Is(err, sqlite.ErrUnknown) || errors.Is(err, sqlite.ErrFenced) {
 		r.pending = true
 	}
 	if admission == nil {
 		return result, nil, err
 	}
-	return result, &acceptedWorkspaceSave{r, admission}, err
+	return result, &acceptedWorkspaceSave{resources: r, admission: admission, request: request}, err
 }
 func (r *openResources) RetainSaveUncertainty() { r.pending = true }
 

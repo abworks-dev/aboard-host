@@ -35,10 +35,10 @@ func (o *WorkspaceOpener) WaitClose(ctx context.Context, a *Authorization, opera
 	return owner.WaitClose(ctx, scope, a.principalID, operationID, false, check)
 }
 
-// ShutdownWorkspaces is a trusted Host teardown path, not an unauthenticated HTTP
-// command. It stops all scopes before waiting for any one of them. A timeout only
-// ends this waiter; the retained owners/installation lock remain authoritative.
-func (o *WorkspaceOpener) ShutdownWorkspaces(ctx context.Context) error {
+// BeginShutdownWorkspaces is a trusted Host teardown path, not an HTTP command.
+// It synchronously freezes the owner set and stops every scope before returning
+// the actual physical-completion join. No caller cancellation releases ownership.
+func (o *WorkspaceOpener) BeginShutdownWorkspaces() <-chan struct{} {
 	s := o.auth.store
 	s.mu.Lock()
 	s.workspaceStopping = true
@@ -51,12 +51,23 @@ func (o *WorkspaceOpener) ShutdownWorkspaces(ctx context.Context) error {
 	for _, owner := range owners {
 		waits = append(waits, owner.BeginShutdown())
 	}
-	for _, done := range waits {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return errors.Join(ErrWorkspaceOpenPending, ctx.Err())
+	joined := make(chan struct{})
+	go func() {
+		for _, done := range waits {
+			<-done
 		}
+		close(joined)
+	}()
+	return joined
+}
+
+// ShutdownWorkspaces only waits on the already-frozen owners. Cancellation ends
+// this waiter, not queue cutoff, accepted work, or physical cleanup.
+func (o *WorkspaceOpener) ShutdownWorkspaces(ctx context.Context) error {
+	select {
+	case <-o.BeginShutdownWorkspaces():
+		return nil
+	case <-ctx.Done():
+		return errors.Join(ErrWorkspaceOpenPending, ctx.Err())
 	}
-	return nil
 }

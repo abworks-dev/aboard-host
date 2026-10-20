@@ -369,6 +369,14 @@ func TestWorkspaceReconcileColdAcceptedHistory(t *testing.T) {
 	if err != nil || result.Status != sqlite.Accepted || admission == nil {
 		t.Fatal(result, admission, err)
 	}
+	// A second durable admission proves that resolving one original key cannot
+	// release the full cold history while another outcome still needs inquiry.
+	second := in
+	second.OperationID = authB
+	secondResult, secondAdmission, err := gate.Admit(ctx, sqlite.SaveRequest{InstallationID: scope.InstallationID, TenantID: scope.TenantID, WorkspaceID: scope.WorkspaceID, PrincipalID: wa.Principal().PrincipalID, OperationID: second.OperationID, CandidateID: second.CandidateID, CandidateDigest: second.CandidateDigest, Epoch: second.Epoch, PreviewVersion: second.PreviewVersion}, time.Now().UTC())
+	if err != nil || secondResult.Status != sqlite.Accepted || secondAdmission == nil {
+		t.Fatal(secondResult, secondAdmission, err)
+	}
 	if err = gate.EndPhysical(); err != nil {
 		t.Fatal(err)
 	}
@@ -387,10 +395,31 @@ func TestWorkspaceReconcileColdAcceptedHistory(t *testing.T) {
 		t.Fatal(queried, err)
 	}
 	resolved, err := opener.ReconcileWorkspaceOperation(ctx, investigator, in.OperationID)
-	if err != nil || resolved.Result.Status != workspace.SaveNotCommitted || !resolved.PhysicalEnded || !resolved.RequiresReopen {
-		t.Fatal("cold accepted history could not be proven without replay", resolved, err)
+	if !errors.Is(err, workspace.ErrOpenUncertain) || resolved.Result.Status != workspace.SaveNotCommitted || !resolved.PhysicalEnded || !resolved.RequiresReopen {
+		t.Fatal("one known key released another unresolved admission", resolved, err)
 	}
-	if err = opener.DrainWorkspace(ctx, ca); err != nil {
+	if probe, err := platform.Acquire(request.RootLocator, platform.Workspace, false, false); err == nil {
+		probe.Close()
+		t.Fatal("other pending history lost physical exclusion")
+	}
+	if err = f.store.Close(); !errors.Is(err, ErrWorkspaceOpenPending) {
+		t.Fatal("other pending history lost installation ownership", err)
+	}
+	resolved, err = opener.ReconcileWorkspaceOperation(ctx, investigator, second.OperationID)
+	if err != nil || resolved.Result.Status != workspace.SaveNotCommitted || !resolved.PhysicalEnded || !resolved.RequiresReopen {
+		t.Fatal("complete cold history could not be proven without replay", resolved, err)
+	}
+	// The public cold path has no epoch with which to request close. Explicit
+	// proven reconciliation must end the fresh investigation connection itself.
+	status, err := opener.WorkspaceStatus(ctx, ra)
+	if err != nil || status.State != workspace.LifecycleClosed || status.Epoch != "" || f.store.workspaceCapacity.Usage() != 0 {
+		t.Fatal("cold reconciliation did not actually retire its owner", status, err, f.store.workspaceCapacity.Usage())
+	}
+	probe, err := platform.Acquire(request.RootLocator, platform.Workspace, false, false)
+	if err != nil {
+		t.Fatal("cold reconciliation retained writer exclusion", err)
+	}
+	if err = probe.Close(); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := opener.OpenWorkspace(ctx, oa, 1)

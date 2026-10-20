@@ -13,6 +13,9 @@ type Status struct {
 }
 
 func (o *OpenOwner) Status(ctx context.Context, scope Scope, authorize func(context.Context) error) (Status, error) {
+	if err := CheckInvestigationReservation(ctx, ""); err != nil {
+		return Status{}, err
+	}
 	ticket, err := o.beginOperation(ctx, scope, authorize, true, false)
 	if err != nil {
 		return Status{}, err

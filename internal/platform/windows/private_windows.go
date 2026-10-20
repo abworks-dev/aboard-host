@@ -14,31 +14,37 @@ import (
 // CreatePrivateDirectory creates exactly one NEW directory, never parents or a
 // repair. The caller owns its lifetime and must pin it before subsequent IO.
 // Its protected DACL grants inheritable full access only to TokenUser and SYSTEM.
-func CreatePrivateDirectory(path string) (err error) {
+func CreatePrivateDirectory(path string) error {
+	_, err := createPrivateDirectory(path)
+	return err
+}
+
+// created reports only a successful FILE_CREATE, even if later checks or close
+// fail. It lets NewScratch retain its exact fresh artifact without claiming an
+// existing name on an unsuccessful create.
+func createPrivateDirectory(path string) (created bool, err error) {
 	path, err = supportedPath(path)
 	if err != nil {
-		return err
+		return false, err
 	}
 	pins, err := pinDirectories(filepath.Dir(path))
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() {
-		for i := len(pins) - 1; i >= 0; i-- {
-			err = errors.Join(err, pins[i].Close())
-		}
+		err = unwindPins(err, pins)
 	}()
 	sid, err := privateUserSID()
 	if err != nil {
-		return err
+		return false, err
 	}
 	sd, err := win.SecurityDescriptorFromString("O:" + sid.String() + "D:P(A;OICI;FA;;;" + sid.String() + ")(A;OICI;FA;;;SY)")
 	if err != nil {
-		return err
+		return false, err
 	}
 	name, err := win.NewNTUnicodeString(filepath.Base(path))
 	if err != nil {
-		return err
+		return false, err
 	}
 	oa := win.OBJECT_ATTRIBUTES{RootDirectory: pins[len(pins)-1].handle, ObjectName: name, Attributes: win.OBJ_CASE_INSENSITIVE | win.OBJ_DONT_REPARSE, SecurityDescriptor: sd}
 	oa.Length = uint32(unsafe.Sizeof(oa))
@@ -47,13 +53,15 @@ func CreatePrivateDirectory(path string) (err error) {
 	err = win.NtCreateFile(&h, win.READ_CONTROL|win.FILE_READ_ATTRIBUTES|win.FILE_LIST_DIRECTORY|win.SYNCHRONIZE, &oa, &ios, nil, win.FILE_ATTRIBUTE_NORMAL, win.FILE_SHARE_READ, win.FILE_CREATE, win.FILE_DIRECTORY_FILE|win.FILE_OPEN_REPARSE_POINT|win.FILE_SYNCHRONOUS_IO_NONALERT, 0, 0)
 	runtime.KeepAlive(sd)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer func() { err = errors.Join(err, win.CloseHandle(h)) }()
-	if _, _, err = inspectHandle(h, path); err != nil {
-		return err
+	created = true
+	f := &File{handle: h, path: path, dir: true}
+	defer func() { err = unwindPins(err, []*File{f}, pins) }()
+	if f.id, f.dir, err = inspectHandle(h, path); err != nil {
+		return true, err
 	}
-	return checkPrivateHandle(h, sid)
+	return true, checkPrivateHandle(h, sid)
 }
 
 // CheckPrivateDirectory inspects an existing directory via pinned, no-reparse
@@ -70,15 +78,13 @@ func CheckPrivateDirectory(path string) (err error) {
 		return err
 	}
 	defer func() {
-		for i := len(pins) - 1; i >= 0; i-- {
-			err = errors.Join(err, pins[i].Close())
-		}
+		err = unwindPins(err, pins)
 	}()
 	f, err := openRelativePinned(pins[len(pins)-1], filepath.Base(path), win.READ_CONTROL|win.FILE_READ_ATTRIBUTES|win.FILE_LIST_DIRECTORY, win.FILE_SHARE_READ, win.OPEN_EXISTING, true)
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, f.Close()) }()
+	defer func() { err = unwindPins(err, []*File{f}, pins) }()
 	sid, err := privateUserSID()
 	if err != nil {
 		return err
@@ -86,12 +92,12 @@ func CheckPrivateDirectory(path string) (err error) {
 	return checkPrivateHandle(f.handle, sid)
 }
 
-func privateUserSID() (*win.SID, error) {
+func privateUserSID() (_ *win.SID, err error) {
 	t, err := win.OpenCurrentProcessToken()
 	if err != nil {
 		return nil, err
 	}
-	defer t.Close()
+	defer func() { err = errors.Join(err, physicalCloseUnknown(t.Close(), &t)) }()
 	u, err := t.GetTokenUser()
 	if err != nil {
 		return nil, err

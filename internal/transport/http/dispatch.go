@@ -21,21 +21,46 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, a *installati
 	installationScope := ws == "" || route.ID == "relinkWorkspace"
 	reply := func(status int, value any) {
 		h.write(w, status, value, corr, route.ID, key, installationScope, func() error {
+			_, err := h.authorizeRoute(r, a, route)
+			if err != nil {
+				return err
+			}
+			return a.Check(ctx)
+		})
+	}
+	fail := func(err error) { h.failure(w, err, corr, route.ID, key, installationScope) }
+	workspaceReply := func(status int, scope workspace.Scope, state workspace.Status, extra func() error) {
+		v, capabilitiesCheck, err := h.currentWorkspaceView(ctx, r, scope, state)
+		if err != nil {
+			fail(err)
+			return
+		}
+		h.write(w, status, v, corr, route.ID, key, installationScope, func() error {
 			action := route.Action
 			if action == "authenticated" {
 				action = ""
 			}
-			_, err := h.auth.AuthorizeHTTP(ctx, r, h.authority, ws, action)
-			return err
+			if _, err := h.auth.AuthorizeHTTP(ctx, r, h.authority, ws, action); err != nil {
+				return err
+			}
+			if extra != nil {
+				if err := extra(); err != nil {
+					return err
+				}
+			}
+			return capabilitiesCheck()
 		})
 	}
-	fail := func(err error) { h.failure(w, err, corr, route.ID, key, installationScope) }
 	installationReply := func(v installation.InstallationOperationView, callErr error, successStatus int) {
 		if callErr != nil && (v.OperationID == "" || errors.Is(callErr, installation.ErrUnauthorized) || errors.Is(callErr, installation.ErrAuthorizationUnknown)) {
 			fail(callErr)
 			return
 		}
 		if v.Outcome == sqlite.InstallationRejected {
+			if callErr != nil {
+				fail(callErr) // Preserve the known initial failure, not a generic history response.
+				return
+			}
 			h.fail(w, 409, protocol.ErrorCodeRECOVERYREQUIRED, corr, route.ID, key, true)
 			return
 		}
@@ -47,13 +72,7 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, a *installati
 				current, stateErr := h.opener.WorkspaceStatus(ctx, readA)
 				if stateErr == nil {
 					currentScope := workspace.Scope{InstallationID: v.InstallationID, TenantID: a.Principal().TenantID, WorkspaceID: v.WorkspaceID}
-					h.write(w, successStatus, workspaceView(currentScope, current), corr, route.ID, key, installationScope, func() error {
-						if _, e := h.auth.AuthorizeHTTP(ctx, r, h.authority, ws, route.Action); e != nil {
-							return e
-						}
-						_, e := h.auth.AuthorizeHTTP(ctx, r, h.authority, v.WorkspaceID, "workspace.read")
-						return e
-					})
+					workspaceReply(successStatus, currentScope, current, func() error { return readA.Check(ctx) })
 					return
 				}
 			}
@@ -122,14 +141,14 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, a *installati
 			fail(err)
 			return
 		}
-		reply(200, workspaceView(scope, workspace.Status{Scope: scope, State: workspace.LifecycleOpen, Epoch: v.Epoch, Snapshot: &v.Snapshot, NeedsInvestigation: v.NeedsInvestigation}))
+		workspaceReply(200, scope, workspace.Status{Scope: scope, State: workspace.LifecycleOpen, Epoch: v.Epoch, Snapshot: &v.Snapshot, NeedsInvestigation: v.NeedsInvestigation}, nil)
 	case "getWorkspace":
 		v, err := h.opener.WorkspaceStatus(ctx, a)
 		if err != nil {
 			fail(err)
 			return
 		}
-		reply(200, workspaceView(scope, v))
+		workspaceReply(200, scope, v, nil)
 	case "closeWorkspace":
 		var in protocol.CloseWorkspace
 		if !decode(&in) {
@@ -148,7 +167,7 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, a *installati
 		w.Header().Set("Location", "/v1/workspaces/"+ws+"/operations/"+key)
 		reply(status, closeView(v, corr))
 	case "listRecords":
-		limit := 20
+		limit := 100
 		if v := query.Get("limit"); v != "" {
 			limit = int(number(v))
 		}
@@ -190,7 +209,7 @@ func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, a *installati
 			fail(err)
 			return
 		}
-		reply(200, candidateView(v))
+		reply(201, candidateView(v))
 	case "commitRecord":
 		var in protocol.CommitRecord
 		if !decode(&in) {

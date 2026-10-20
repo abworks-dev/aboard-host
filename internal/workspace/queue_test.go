@@ -14,7 +14,7 @@ func waitQueueUsage(t *testing.T, q *operationQueue, want int) {
 	defer cancel()
 	for {
 		q.mu.Lock()
-		got := q.used
+		got := q.capacity.localUsage(q)
 		changed := q.changed
 		q.mu.Unlock()
 		if got == want {
@@ -80,7 +80,7 @@ func TestOperationQueueHardBoundsRetainedUnknownAndRunnableReserve(t *testing.T)
 		t.Fatal(err)
 	}
 	a.mu.Lock()
-	used := a.used
+	used := a.capacity.localUsage(a)
 	a.mu.Unlock()
 	if used != 32 {
 		t.Fatal(used)

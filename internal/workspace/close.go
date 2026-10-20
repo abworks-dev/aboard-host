@@ -1,6 +1,9 @@
 package workspace
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // CloseView is process-local coordination history, never a durable save receipt.
 // A fresh process has no evidence for a previous process's close operation.
@@ -11,11 +14,15 @@ type CloseView struct {
 	Closed                          bool
 }
 type closeOperation struct {
-	view CloseView
-	done chan struct{}
+	view        CloseView
+	done        chan struct{}
+	reservation *OperationReservation
 }
 
 func (o *OpenOwner) CloseWorkspace(ctx context.Context, scope Scope, principal, operationID, epoch string, authorize func(context.Context) error) (CloseView, error) {
+	if err := CheckInvestigationReservation(ctx, ""); err != nil {
+		return CloseView{}, err
+	}
 	if scope != o.scope {
 		return CloseView{}, ErrScope
 	}
@@ -36,6 +43,9 @@ func (o *OpenOwner) CloseWorkspace(ctx context.Context, scope Scope, principal, 
 		}
 		return previous.view, nil
 	}
+	if _, saveKey := o.saveKeys[operationID]; saveKey {
+		return CloseView{}, ErrSaveKeyReuse
+	}
 	q := o.queue
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -48,14 +58,21 @@ func (o *OpenOwner) CloseWorkspace(ctx context.Context, scope Scope, principal, 
 	// This short critical section rejects new ordinary work without waiting for
 	// the workspace's active physical IO. Only already executing work keeps its
 	// epoch; queued requests have no durable admission and are rejected.
+	reservation, err := q.retainCloseReference(ctx)
+	if err != nil {
+		return CloseView{}, err
+	}
 	q.stopLocked()
-	operation := &closeOperation{view: CloseView{Scope: scope, PrincipalID: principal, OperationID: operationID, Epoch: epoch, State: LifecycleDraining}, done: make(chan struct{})}
+	operation := &closeOperation{view: CloseView{Scope: scope, PrincipalID: principal, OperationID: operationID, Epoch: epoch, State: LifecycleDraining}, done: make(chan struct{}), reservation: reservation}
 	o.closes[operationID] = operation
 	o.closing = operation
 	go o.finishClose(context.WithoutCancel(ctx), scope, operation)
 	return operation.view, nil
 }
 func (o *OpenOwner) GetCloseOperation(ctx context.Context, scope Scope, principal, operationID string, operator bool, authorize func(context.Context) error) (CloseView, error) {
+	if err := o.checkInvestigation(ctx, operationID); err != nil {
+		return CloseView{}, err
+	}
 	if scope != o.scope {
 		return CloseView{}, ErrScope
 	}
@@ -100,6 +117,9 @@ func (o *OpenOwner) WaitClose(ctx context.Context, scope Scope, principal, opera
 	return view, nil
 }
 func (o *OpenOwner) finishClose(ctx context.Context, scope Scope, operation *closeOperation) {
+	if operation.reservation != nil {
+		ctx = operation.reservation.Context(ctx)
+	}
 	for {
 		ticket, err := o.queue.enterDrain(ctx)
 		if err != nil {
@@ -124,6 +144,7 @@ func (o *OpenOwner) finishClose(ctx context.Context, scope Scope, operation *clo
 			// Publish terminal history before dispatching a queued reopen, and
 			// release its capacity before notifying waiters. closeMu prevents
 			// shutdown from joining the retired generation during this handoff.
+			operation.reservation.Release()
 			ticket.finish()
 			close(operation.done)
 			o.closeMu.Unlock()
@@ -184,15 +205,17 @@ func (q *operationQueue) enterDrain(ctx context.Context) (*queueTicket, error) {
 		q.mu.Lock()
 		globalChanged := q.capacity.watch()
 		if q.active == nil && len(q.waiting) == 0 {
-			if q.used < WorkspaceOperationLimit && q.capacity.acquire(true) {
-				t := &queueTicket{queue: q, control: true, reserved: true, ready: make(chan struct{})}
-				q.used++
+			if reservation, reserveErr := q.reserveTurn(ctx, true); reserveErr == nil {
+				t := &queueTicket{queue: q, control: true, reservation: reservation, ready: make(chan struct{})}
 				q.active = t
 				q.drainWaiting = false
 				acquired = true
 				close(t.ready)
 				q.mu.Unlock()
 				return t, nil
+			} else if !errors.Is(reserveErr, ErrCapacity) {
+				q.mu.Unlock()
+				return nil, reserveErr
 			}
 		}
 		changed := q.changed

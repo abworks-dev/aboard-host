@@ -196,7 +196,8 @@ func TestWorkspaceCloseRealFullQueueNativeIOAndIndependentB(t *testing.T) {
 	if _, err = opener.ReadRecord(ctx, ar, ap.Candidate.ResourceID); err != nil {
 		t.Fatal("old close key closed new epoch", err)
 	}
-	if _, err = opener.CloseWorkspace(ctx, ac, authA, av.Epoch); !errors.Is(err, workspace.ErrStaleHandle) {
+	// A NEW close key isolates stale-epoch rejection from the saved authA key.
+	if _, err = opener.CloseWorkspace(ctx, ac, authRestricted, av.Epoch); !errors.Is(err, workspace.ErrStaleHandle) {
 		t.Fatal("old epoch acquired new close", err)
 	}
 	t.Log("real native formal COMMIT held after durable admission: full A rejects pre-IO, B commits/reads independently, canceled waiter/close timeout retain writer+installation locks, actual completion closes then explicit fresh epoch preserves confirmed bytes; full Host/harness V013/V014 still separate")
@@ -205,6 +206,9 @@ func TestWorkspaceCloseRealFullQueueNativeIOAndIndependentB(t *testing.T) {
 func closeCommitFaultChild(t *testing.T, opener *WorkspaceOpener, f *authFixture, ws, epoch string, ca, operator *Authorization, in workspace.SaveInput) {
 	t.Helper()
 	ctx := context.Background()
+	if got, err := opener.CloseWorkspace(ctx, ca, in.OperationID, epoch); !errors.Is(err, workspace.ErrSaveKeyReuse) || got.OperationID != "" {
+		t.Fatal("unknown save key changed kind to close", got, err)
+	}
 	if usage := f.store.workspaceCapacity.Usage(); usage != 1 {
 		t.Fatal("unknown polling duplicated physical capacity", usage)
 	}

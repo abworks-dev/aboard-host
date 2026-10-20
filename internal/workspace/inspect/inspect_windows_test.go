@@ -317,6 +317,9 @@ func TestInspectionGateScratchAndCancellation(t *testing.T) {
 	watch := startWatch(t, root)
 	ioBefore := ioSnapshot(t)
 	report, err := inspect(context.Background(), root, parent, func(path string) error {
+		if retained != "" {
+			return os.RemoveAll(path)
+		} // retry only the original known child
 		// This is the exact vulnerable interval: root pin released, deletion
 		// not started. The known synthetic cache anchor must stay immovable.
 		if !filepath.IsAbs(parent) || !within(filepath.Dir(root), parent) {
@@ -369,9 +372,12 @@ func TestInspectionGateScratchAndCancellation(t *testing.T) {
 		t.Fatal(closeErr)
 	}
 	blocker = 0
-	if err = os.RemoveAll(retained); err != nil {
+	if report.Retained == nil {
+		t.Fatal("cleanup refusal discarded original owner")
+	}
+	if err = report.Retained.Close(); err != nil {
 		t.Fatal(err)
-	} // exact freshly returned synthetic path checked above
+	}
 	if !reflect.DeepEqual(before, inventory(t, root)) {
 		t.Fatal("cleanup failure modified source")
 	}

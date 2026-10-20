@@ -67,6 +67,19 @@ func TestProfileGatePhysicalCloseErrorPreserved(t *testing.T) {
 	}
 }
 
+func TestProfileGateFactoryErrorRetainsOriginalOwner(t *testing.T) {
+	owner := &Handle{}
+	cause := errors.New("controlled factory-close cause")
+	err := retainCloseOwner(physicalCloseResult(cause), owner)
+	var retained *retainedCloseOwner
+	if !errors.As(err, &retained) || retained.owner != owner || !errors.Is(err, ErrPhysicalCloseUnknown) || !errors.Is(err, cause) {
+		t.Fatal("nil-result factory error lost original owner/cause", err)
+	}
+	if got := retainCloseOwner(cause, owner); got != cause {
+		t.Fatal("ordinary failure quarantined")
+	}
+}
+
 func TestProfileGateRepeatedRealCloseAndReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "real-close.sqlite")
 	h := openGate(t, path, CreateNew)

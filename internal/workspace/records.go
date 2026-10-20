@@ -56,7 +56,15 @@ func (o *OpenOwner) withRead(ctx context.Context, scope Scope, authorize func(co
 	}
 	defer ticket.finish()
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	started := false
+	defer func() {
+		if started {
+			if state, _ := o.lifecycle.State(scope); state == LifecycleUnknown {
+				ticket.retain("preview")
+			}
+		}
+		o.mu.Unlock()
+	}()
 	if scope != o.scope {
 		return ErrScope
 	}
@@ -79,6 +87,7 @@ func (o *OpenOwner) withRead(ctx context.Context, scope Scope, authorize func(co
 	if err = o.resources.Validate(); err != nil {
 		return err
 	}
+	started = true
 	if err = read(o.resources); err != nil {
 		return err
 	}

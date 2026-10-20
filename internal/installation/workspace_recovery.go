@@ -167,6 +167,12 @@ func (w recoveryWriter) Write(b []byte) (int, error) {
 }
 
 func (r *openResources) preflightRecovery(ctx context.Context, descriptor workspace.DirectoryDescriptor, authorize func(context.Context) error) (needsRecovery bool, err error) {
+	defer func() {
+		if errors.Is(err, platform.ErrPhysicalCloseUnknown) {
+			r.quarantined = true
+			r.nativeFailure = err
+		}
+	}()
 	r.recoveryInputs, err = r.lease.FreezeWorkspaceOpenInputs()
 	if err != nil {
 		return false, err

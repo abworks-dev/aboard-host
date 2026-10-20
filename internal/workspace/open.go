@@ -25,6 +25,8 @@ type OpenEvidence struct {
 	Resources          OpenResources
 	Snapshot           Snapshot
 	NeedsInvestigation bool
+	// All durable save IDs from the same validated history, not result or rights data.
+	SaveOperationIDs []string
 }
 type OpenView struct {
 	Scope              Scope
@@ -45,7 +47,9 @@ type OpenOwner struct {
 	queue     *operationQueue
 	closeMu   sync.Mutex
 	closes    map[string]*closeOperation
-	closing   *closeOperation
+	// Denial-only kind index, guarded by closeMu. Persistence still owns results.
+	saveKeys map[string]struct{}
+	closing  *closeOperation
 }
 
 func NewOpenOwner(scope Scope, lifecycle *Lifecycle) (*OpenOwner, error) {
@@ -55,7 +59,7 @@ func NewOpenOwnerWithCapacity(scope Scope, lifecycle *Lifecycle, capacity *Opera
 	if scope.Validate() != nil || lifecycle == nil || capacity == nil {
 		return nil, ErrScope
 	}
-	return &OpenOwner{scope: scope, lifecycle: lifecycle, queue: newOperationQueue(capacity), closes: make(map[string]*closeOperation)}, nil
+	return &OpenOwner{scope: scope, lifecycle: lifecycle, queue: newOperationQueue(capacity), closes: make(map[string]*closeOperation), saveKeys: make(map[string]struct{})}, nil
 }
 func newEpoch() (string, error) {
 	var b [16]byte
@@ -111,6 +115,10 @@ func (o *OpenOwner) Open(ctx context.Context, scope Scope, authorize func(contex
 	if err == nil {
 		err = ctx.Err()
 	}
+	var keys map[string]struct{}
+	if err == nil {
+		keys, err = o.validatedSaveKeys(evidence.SaveOperationIDs)
+	}
 	if err != nil {
 		_ = o.lifecycle.BeginDrain(scope)
 		var end error
@@ -131,8 +139,18 @@ func (o *OpenOwner) Open(ctx context.Context, scope Scope, authorize func(contex
 		return OpenView{}, err
 	}
 	o.view = OpenView{Scope: scope, Snapshot: evidence.Snapshot, Epoch: epoch, NeedsInvestigation: evidence.NeedsInvestigation}
+	o.closeMu.Lock()
+	o.saveKeys = keys
+	o.closeMu.Unlock()
 	o.queue.mu.Lock()
 	o.queue.epoch = epoch
+	// An explicit open can have queued before a cold investigation physically
+	// retired its predecessor. Publish a new generation's flags here as well as
+	// at enqueue; never undo process shutdown's irreversible admission cutoff.
+	o.queue.closed = false
+	if !o.queue.stopping {
+		o.queue.closing = false
+	}
 	o.queue.mu.Unlock()
 	return o.view, nil
 }
@@ -152,6 +170,13 @@ func (o *OpenOwner) DrainOpen(ctx context.Context, scope Scope, authorize func(c
 	if err := authorize(ctx); err != nil {
 		return err
 	}
+	return o.drainOwnedResources(scope)
+}
+
+// drainOwnedResources requires o.mu and a previously checked current authority.
+// It is shared by explicit close and the narrow cold-investigation handoff; an
+// empty owner never gains authority to clear another coordinator's fence.
+func (o *OpenOwner) drainOwnedResources(scope Scope) error {
 	// A binding coordinator can fence the shared lifecycle while retaining its
 	// own resources. An empty open owner has no evidence to clear that fence.
 	if o.resources == nil {

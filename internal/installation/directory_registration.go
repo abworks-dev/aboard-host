@@ -93,6 +93,16 @@ func (d *DirectoryCoordinator) owner(ctx context.Context, a *Authorization, key,
 		return nil, e
 	}
 	if !w.active {
+		if w.reservation == nil {
+			ref, e := s.capacityLocked().RetainOperation(ctx)
+			if e != nil {
+				s.mu.Unlock()
+				w.mu.Unlock()
+				return nil, e
+			}
+			w.reservation = ref
+			w.quotaPending, w.quotaKnown = false, false
+		}
 		w.active = true
 		s.pendingWorkspaceCreations++
 	}
@@ -233,6 +243,9 @@ func (d *DirectoryCoordinator) Relink(ctx context.Context, a *Authorization, id 
 	return d.bind(ctx, a, "relink", id, r.OperationID, r.RootLocator, "", r.ExpectedRegistrationVersion)
 }
 func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind, id, key, root, identity string, version int64) (view InstallationOperationView, err error) {
+	if e := workspace.CheckInvestigationReservation(ctx, ""); e != nil {
+		return view, e
+	}
 	if _, e := canonicalLocation(root); e != nil {
 		return view, ErrDirectoryBinding
 	}
@@ -247,6 +260,7 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 	closedInside := false
 	defer func() {
 		if !closedInside {
+			w.rememberNativeFailure(err)
 			err = errors.Join(err, d.creator.drain(w))
 		}
 	}()
@@ -269,6 +283,7 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 		if (kind == "register" && old.IdentityDigest != identity) || (kind == "relink" && old.ExpectedRegistrationVersion != version) {
 			return view, sqlite.ErrInstallationOperationConflict
 		}
+		w.observeQuotaOutcome(old.InstallationOperation)
 		return bindingView(old), nil
 	}
 	if !errors.Is(e, sql.ErrNoRows) {
@@ -284,6 +299,7 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 	err = l.WithClosed(ctx, scope, func() (actionErr error) {
 		defer func() {
 			closedInside = true
+			w.rememberNativeFailure(actionErr)
 			if closeErr := d.creator.drain(w); closeErr != nil {
 				actionErr = errors.Join(actionErr, closeErr, workspace.ErrLifecycleUncertain)
 			}
@@ -300,8 +316,11 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 			if e != nil {
 				return e
 			}
-			if reg.RegistrationVersion != version || reg.RootLocator == root || reg.VolumeIdentity != observed.RootVolume || !bytes.Equal(reg.RootFileID, observed.RootFileID) {
-				return sqlite.ErrInstallationOperationConflict
+			if reg.RegistrationVersion != version {
+				return workspace.ErrStaleHandle
+			}
+			if reg.RootLocator == root || reg.VolumeIdentity != observed.RootVolume || !bytes.Equal(reg.RootFileID, observed.RootFileID) {
+				return workspace.ErrDirectoryIdentityMismatch
 			}
 			if !a.auth.allows(reg.RootLocator) {
 				return ErrUnauthorized
@@ -312,6 +331,9 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 			observed.PreviousLocator = reg.RootLocator
 			observed.ExpectedRegistrationVersion = version
 		} else if e == nil {
+			if reg.RootLocator != root || reg.VolumeIdentity != observed.RootVolume || !bytes.Equal(reg.RootFileID, observed.RootFileID) {
+				return workspace.ErrDirectoryIdentityMismatch
+			}
 			observed.ExpectedRegistrationVersion = reg.RegistrationVersion
 		} else if !errors.Is(e, sql.ErrNoRows) {
 			return e
@@ -325,7 +347,14 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 		e = d.checkLocked(ctx, a, kind, id, root)
 		var old bool
 		if e == nil {
+			pendingBefore := w.quotaPending
+			w.quotaPending = true
 			observed, old, e = s.db.RecordBindingIntent(ctx, a.hash, a.version, observed)
+			if e == nil {
+				w.observeQuotaOutcome(observed.InstallationOperation)
+			} else if !errors.Is(e, sqlite.ErrUnknown) {
+				w.quotaPending = pendingBefore
+			}
 		}
 		if errors.Is(e, sqlite.ErrUnknown) {
 			s.authUncertain = true
@@ -360,6 +389,7 @@ func (d *DirectoryCoordinator) bind(ctx context.Context, a *Authorization, kind,
 			return e
 		}
 		view.Phase, view.Outcome = sqlite.RegistrationConfirmed, sqlite.InstallationCommitted
+		w.quotaKnown = true
 		return nil
 	})
 	return view, err
@@ -368,6 +398,10 @@ func (d *DirectoryCoordinator) readBinding(ctx context.Context, a *Authorization
 	s := d.creator.auth.store
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return d.readBindingLocked(ctx, a, key)
+}
+func (d *DirectoryCoordinator) readBindingLocked(ctx context.Context, a *Authorization, key string) (sqlite.BindingOperation, error) {
+	s := d.creator.auth.store
 	if a.workspaceID == "" && a.action == "installation.operator" {
 		return s.db.ReadBindingInvestigation(ctx, a.hash, a.version, a.installationID, a.principalID, key)
 	}
@@ -376,6 +410,9 @@ func (d *DirectoryCoordinator) readBinding(ctx context.Context, a *Authorization
 
 // Query/Reconcile dispatch by the persisted kind, never by a client claim.
 func (d *DirectoryCoordinator) GetInstallationOperation(ctx context.Context, a *Authorization, key string) (InstallationOperationView, error) {
+	if e := d.creator.auth.store.checkInstallationInvestigation(ctx, key); e != nil {
+		return InstallationOperationView{}, e
+	}
 	o, e := d.dispatch(ctx, a, key)
 	if e != nil {
 		return InstallationOperationView{}, e
@@ -383,12 +420,18 @@ func (d *DirectoryCoordinator) GetInstallationOperation(ctx context.Context, a *
 	if o.Kind == "create" {
 		return d.creator.GetInstallationOperation(ctx, a, key)
 	}
-	b, e := d.readBinding(ctx, a, key)
+	s := d.creator.auth.store
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, e := d.readBindingLocked(ctx, a, key)
 	if e != nil {
 		return InstallationOperationView{}, e
 	}
 	if !a.auth.allows(b.TargetLocator) || !underLocation(b.AllowedLocation, b.TargetLocator) {
 		return InstallationOperationView{}, ErrUnauthorized
+	}
+	if terminalInstallationOperation(b.InstallationOperation) {
+		d.creator.rememberKnownQuotaLocked(key)
 	}
 	return bindingView(b), nil
 }
@@ -415,6 +458,9 @@ func (d *DirectoryCoordinator) dispatch(ctx context.Context, a *Authorization, k
 	return o, nil
 }
 func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Context, a *Authorization, key string, phase sqlite.InstallationPhase) (view InstallationOperationView, err error) {
+	if e := d.creator.auth.store.checkInstallationInvestigation(ctx, key); e != nil {
+		return view, e
+	}
 	raw, e := d.dispatch(ctx, a, key)
 	if e != nil {
 		return view, e
@@ -422,15 +468,7 @@ func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Contex
 	if raw.Kind == "create" {
 		return d.creator.ReconcileInstallationOperation(ctx, a, key, phase)
 	}
-	o, e := d.readBinding(ctx, a, key)
-	if e != nil {
-		return view, e
-	}
-	view = bindingView(o)
-	if o.Phase != string(phase) {
-		return view, sqlite.ErrInstallationOperationConflict
-	}
-	w, e := d.owner(ctx, a, key, o.Kind, o.WorkspaceID)
+	w, e := d.owner(ctx, a, key, raw.Kind, raw.WorkspaceID)
 	if e != nil {
 		return view, e
 	}
@@ -441,9 +479,22 @@ func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Contex
 	closedInside := false
 	defer func() {
 		if !closedInside {
+			w.rememberNativeFailure(err)
 			err = errors.Join(err, d.creator.drain(w))
 		}
 	}()
+	// Read mutable phase/outcome only under the original-key physical owner.
+	// A queued caller must not overwrite later terminal/unknown evidence with a
+	// snapshot taken before waiting for that owner.
+	o, e := d.readBinding(ctx, a, key)
+	if e != nil {
+		return view, e
+	}
+	w.observeQuotaOutcome(o.InstallationOperation)
+	view = bindingView(o)
+	if o.Phase != string(phase) {
+		return view, sqlite.ErrInstallationOperationConflict
+	}
 	s := a.auth.store
 	scope := workspace.Scope{InstallationID: a.installationID, TenantID: a.tenantID, WorkspaceID: o.WorkspaceID}
 	s.mu.Lock()
@@ -455,6 +506,7 @@ func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Contex
 	err = l.WithClosed(ctx, scope, func() (actionErr error) {
 		defer func() {
 			closedInside = true
+			w.rememberNativeFailure(actionErr)
 			if closeErr := d.creator.drain(w); closeErr != nil {
 				actionErr = errors.Join(actionErr, closeErr, workspace.ErrLifecycleUncertain)
 			}
@@ -485,7 +537,12 @@ func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Contex
 		if e = d.checkLocked(ctx, a, o.Kind, o.WorkspaceID, o.TargetLocator); e != nil {
 			return e
 		}
+		knownBefore := w.quotaKnown
+		w.quotaPending, w.quotaKnown = true, false
 		e = s.db.FinalizeBinding(ctx, a.hash, a.version, o, true)
+		if e != nil && !errors.Is(e, sqlite.ErrUnknown) {
+			w.quotaKnown = knownBefore
+		}
 		if errors.Is(e, sqlite.ErrUnknown) {
 			s.authUncertain = true
 			view.Outcome = sqlite.InstallationUnknown
@@ -494,6 +551,7 @@ func (d *DirectoryCoordinator) ReconcileInstallationOperation(ctx context.Contex
 			return e
 		}
 		view.Phase, view.Outcome = sqlite.RegistrationConfirmed, sqlite.InstallationCommitted
+		w.quotaKnown = true
 		return nil
 	})
 	return view, err

@@ -47,6 +47,20 @@ type Handle struct {
 	closeResult    error
 }
 
+type retainedCloseOwner struct {
+	cause error
+	owner any
+}
+
+func (e *retainedCloseOwner) Error() string { return e.cause.Error() }
+func (e *retainedCloseOwner) Unwrap() error { return e.cause }
+func retainCloseOwner(err error, owner any) error {
+	if errors.Is(err, ErrPhysicalCloseUnknown) {
+		return &retainedCloseOwner{err, owner}
+	}
+	return err
+}
+
 func physicalCloseResult(errs ...error) error {
 	if err := errors.Join(errs...); err != nil {
 		return errors.Join(ErrPhysicalCloseUnknown, err)
@@ -107,7 +121,7 @@ func Open(ctx context.Context, path string, mode Mode) (*Handle, error) {
 			return nil, err
 		}
 		if err := f.Close(); err != nil {
-			return nil, physicalCloseResult(err)
+			return nil, retainCloseOwner(physicalCloseResult(err), f)
 		}
 	}
 	db, err := sql.Open("sqlite", dsn)
@@ -118,11 +132,11 @@ func Open(ctx context.Context, path string, mode Mode) (*Handle, error) {
 	db.SetMaxIdleConns(1)
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return nil, errors.Join(err, physicalCloseResult(db.Close()))
+		return nil, retainCloseOwner(errors.Join(err, physicalCloseResult(db.Close())), db)
 	}
 	h := &Handle{Conn: conn, db: db}
 	if err := configure(ctx, conn, mode); err != nil {
-		return nil, errors.Join(err, h.Close())
+		return nil, retainCloseOwner(errors.Join(err, h.Close()), h)
 	}
 	return h, nil
 }

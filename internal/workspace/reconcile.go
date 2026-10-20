@@ -31,6 +31,9 @@ func (o *OpenOwner) ReconcileSaveOperation(ctx context.Context, scope Scope, pri
 	return o.investigateSave(ctx, scope, principal, operationID, true, true, authorize)
 }
 func (o *OpenOwner) investigateSave(ctx context.Context, scope Scope, principal, operationID string, operator, reconcile bool, authorize func(context.Context) error) (OperationEvidence, error) {
+	if err := o.checkInvestigation(ctx, operationID); err != nil {
+		return OperationEvidence{}, err
+	}
 	ticket, admissionErr := o.beginOperation(ctx, scope, authorize, true, false)
 	if admissionErr != nil {
 		return OperationEvidence{}, admissionErr
@@ -90,7 +93,24 @@ func (o *OpenOwner) investigateSave(ctx context.Context, scope Scope, principal,
 	if evidence.PhysicalEnded && (evidence.Result.Status == SaveConfirmed || evidence.Result.Status == SaveRejected || evidence.Result.Status == SaveNotCommitted) {
 		o.queue.resolve("save:" + operationID)
 	}
-	physicalErr := o.resources.Validate()
+	if reconcile && err == nil && o.view.Epoch == "" && evidence.RequiresReopen && evidence.PhysicalEnded &&
+		(evidence.Result.Status == SaveConfirmed || evidence.Result.Status == SaveRejected || evidence.Result.Status == SaveNotCommitted) {
+		// A cold unknown open published no epoch, so public close cannot be
+		// fabricated to dispose of the fresh investigation connection. Finish
+		// only this operator-requested, proven original history. The adapter's
+		// Close still refuses any other pending save/quarantine and all physical
+		// cleanup must actually finish before lifecycle/capacity can be released.
+		if end := authorize(context.WithoutCancel(ctx)); end != nil {
+			err = end
+		} else if end = o.drainOwnedResources(scope); end != nil {
+			fence()
+			err = end
+		}
+	}
+	var physicalErr error
+	if o.resources != nil {
+		physicalErr = o.resources.Validate()
+	}
 	if physicalErr != nil {
 		fence()
 	}

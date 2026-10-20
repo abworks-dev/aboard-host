@@ -68,13 +68,17 @@ func NewWorkspaceCreator(auth *Authenticator) (*WorkspaceCreator, error) {
 // workspaceCreation is retained in Store through every physical-close unknown,
 // even when the database factory returned nil. Store.Close cannot outrun it.
 type workspaceCreation struct {
-	mu          sync.Mutex
-	active      bool // changed under Store.mu only; all resource fields under mu
-	creation    *platform.WorkspaceCreation
-	lease       *platform.Lease
-	pins        []*platform.File
-	db          *sqlite.Database
-	openUnknown bool
+	mu            sync.Mutex
+	active        bool // changed under Store.mu only; all resource fields under mu
+	creation      *platform.WorkspaceCreation
+	lease         *platform.Lease
+	pins          []*platform.File
+	db            *sqlite.Database
+	openUnknown   bool
+	nativeFailure error
+	reservation   *workspace.OperationReservation // under w.mu + Store.mu when replaced
+	quotaPending  bool                            // durable outcome may be unresolved; independent of active
+	quotaKnown    bool                            // positive terminal evidence, not a caller/delivery error
 }
 
 func (c *WorkspaceCreator) checkLocked(ctx context.Context, operator *Authorization, path string) error {
@@ -116,15 +120,32 @@ func (c *WorkspaceCreator) owner(ctx context.Context, operator *Authorization, k
 		return nil, err
 	}
 	if !w.active {
+		if w.reservation == nil {
+			ref, err := s.capacityLocked().RetainOperation(ctx)
+			if err != nil {
+				s.mu.Unlock()
+				w.mu.Unlock()
+				return nil, err
+			}
+			w.reservation = ref
+			w.quotaPending, w.quotaKnown = false, false
+		}
 		w.active = true
 		s.pendingWorkspaceCreations++
 	}
 	s.mu.Unlock()
 	return w, nil
 }
-func (c *WorkspaceCreator) closePhysical(w *workspaceCreation) error {
+func (w *workspaceCreation) rememberNativeFailure(err error) {
+	if errors.Is(err, platform.ErrPhysicalCloseUnknown) && w.nativeFailure == nil {
+		w.openUnknown = true
+		w.nativeFailure = err
+	}
+}
+func (c *WorkspaceCreator) closePhysical(w *workspaceCreation) (err error) {
+	defer func() { w.rememberNativeFailure(err) }()
 	if w.openUnknown {
-		return errors.Join(ErrWorkspaceCreation, sqlite.ErrPhysicalCloseUnknown)
+		return errors.Join(ErrWorkspaceCreation, sqlite.ErrPhysicalCloseUnknown, w.nativeFailure)
 	}
 	if w.db != nil {
 		if err := w.db.Close(); err != nil {
@@ -158,6 +179,10 @@ func (c *WorkspaceCreator) releaseOwner(w *workspaceCreation) {
 	if w.active {
 		w.active = false
 		s.pendingWorkspaceCreations--
+		if !w.quotaPending || w.quotaKnown {
+			w.reservation.Release()
+			w.reservation = nil
+		}
 	}
 	s.mu.Unlock()
 }
@@ -174,10 +199,18 @@ func (c *WorkspaceCreator) readLocked(ctx context.Context, operator *Authorizati
 	}
 	return c.auth.store.db.ReadDirectoryOperation(ctx, operator.hash, operator.version, operator.installationID, operator.principalID, key)
 }
-func (c *WorkspaceCreator) GetInstallationOperation(ctx context.Context, operator *Authorization, key string) (InstallationOperationView, error) {
+func (c *WorkspaceCreator) GetInstallationOperation(ctx context.Context, operator *Authorization, key string) (out InstallationOperationView, err error) {
+	if e := c.auth.store.checkInstallationInvestigation(ctx, key); e != nil {
+		return out, e
+	}
 	s := c.auth.store
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		if err == nil && (out.Outcome == sqlite.InstallationRejected || (out.Outcome == sqlite.InstallationCommitted && out.Phase == sqlite.RegistrationConfirmed)) {
+			c.rememberKnownQuotaLocked(key)
+		}
+		s.mu.Unlock()
+	}()
 	o, err := c.readLocked(ctx, operator, key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return InstallationOperationView{}, ErrWorkspaceCreationNotFound
@@ -257,7 +290,9 @@ func (c *WorkspaceCreator) finalize(ctx context.Context, operator *Authorization
 	if err := c.checkLocked(ctx, operator, o.TargetLocator); err != nil {
 		return err
 	}
-	err := s.db.FinalizeCreation(ctx, operator.hash, operator.version, o, reconcile)
+	err := creationFinalize(c, operator, o, reconcile, func() error {
+		return s.db.FinalizeCreation(ctx, operator.hash, operator.version, o, reconcile)
+	})
 	// The internal seam also models loss of confirmation after a real COMMIT;
 	// it cannot grant anything or suppress an adapter error.
 	if err == nil && c.afterPhase != nil {
@@ -276,6 +311,9 @@ func (c *WorkspaceCreator) finalize(ctx context.Context, operator *Authorization
 // no recovery permission: Get/Reconcile only report missing evidence. No recovery
 // path may convert that absence into Create or promise eternal RPC deduplication.
 func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Authorization, r CreateWorkspaceRequest) (view InstallationOperationView, err error) {
+	if e := workspace.CheckInvestigationReservation(ctx, ""); e != nil {
+		return view, e
+	}
 	if operator == nil {
 		return view, ErrUnauthorized
 	}
@@ -294,6 +332,7 @@ func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Author
 		return view, errors.Join(ErrWorkspaceCreation, sqlite.ErrPhysicalCloseUnknown)
 	}
 	defer func() {
+		w.rememberNativeFailure(err)
 		closeErr := c.closePhysical(w)
 		err = errors.Join(err, closeErr)
 		if err != nil && admitted && o.Phase != "" && o.Outcome != string(sqlite.InstallationCommitted) {
@@ -304,13 +343,23 @@ func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Author
 			}
 			// A canceled request must not suppress best-effort recording, but this fresh
 			// transaction still checks that the current session has not been revoked.
-			err = errors.Join(ErrWorkspaceCreation, err, c.interrupted(context.WithoutCancel(ctx), operator, o, err))
+			unknown := errors.Is(err, sqlite.ErrUnknown) || errors.Is(err, sqlite.ErrPhysicalCloseUnknown)
+			interruptedErr := c.interrupted(context.WithoutCancel(ctx), operator, o, err)
+			if interruptedErr == nil && !unknown {
+				w.quotaKnown = true
+			}
+			err = errors.Join(ErrWorkspaceCreation, err, interruptedErr)
 		}
 		// Keep the installation alive through final interruption bookkeeping too.
 		if closeErr == nil {
 			c.releaseOwner(w)
 		}
 	}()
+	configured, configureErr := creationRequestCreator(c, r)
+	if configureErr != nil {
+		return view, configureErr
+	}
+	c = configured // normal build is identity; test build scopes the existing seam per request
 	s := c.auth.store
 	s.mu.Lock()
 	if err = c.checkLocked(ctx, operator, r.RootLocator); err != nil {
@@ -329,6 +378,7 @@ func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Author
 			s.mu.Unlock()
 			return view, ErrUnauthorized
 		}
+		w.observeQuotaOutcome(o.InstallationOperation)
 		s.mu.Unlock()
 		return operationView(o), nil
 	}
@@ -343,7 +393,14 @@ func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Author
 	}
 	var existing bool
 	if err == nil {
+		pendingBefore := w.quotaPending
+		w.quotaPending = true
 		o, existing, err = s.db.RecordCreationIntent(ctx, operator.hash, operator.version, o)
+		if err == nil {
+			w.observeQuotaOutcome(o.InstallationOperation)
+		} else if !errors.Is(err, sqlite.ErrUnknown) {
+			w.quotaPending = pendingBefore
+		}
 	}
 	// An actual adapter transaction unknown fences this SAME installation conn,
 	// not merely final grants. Do not write Interrupt or infer safe first use.
@@ -434,6 +491,7 @@ func (c *WorkspaceCreator) CreateWorkspace(ctx context.Context, operator *Author
 		return operationView(o), err
 	}
 	o.Phase, o.Outcome = string(sqlite.RegistrationConfirmed), string(sqlite.InstallationCommitted)
+	w.observeQuotaOutcome(o.InstallationOperation)
 	return operationView(o), nil
 }
 
@@ -452,6 +510,9 @@ func (c *WorkspaceCreator) DrainWorkspaceCreation(ctx context.Context, operator 
 // after proving all original evidence. It cannot seed a DB, publish a manifest,
 // replay create, relink a root, reset identity, or infer an unknown missing row.
 func (c *WorkspaceCreator) ReconcileInstallationOperation(ctx context.Context, operator *Authorization, key string, expectedPhase sqlite.InstallationPhase) (view InstallationOperationView, err error) {
+	if e := c.auth.store.checkInstallationInvestigation(ctx, key); e != nil {
+		return view, e
+	}
 	w, err := c.owner(ctx, operator, key)
 	if err != nil {
 		return view, err
@@ -460,7 +521,7 @@ func (c *WorkspaceCreator) ReconcileInstallationOperation(ctx context.Context, o
 	if w.creation != nil || w.lease != nil || w.db != nil || w.openUnknown {
 		return view, errors.Join(ErrWorkspaceCreation, sqlite.ErrPhysicalCloseUnknown)
 	}
-	defer func() { err = errors.Join(err, c.drain(w)) }()
+	defer func() { w.rememberNativeFailure(err); err = errors.Join(err, c.drain(w)) }()
 	s := c.auth.store
 	s.mu.Lock()
 	o, err := c.readLocked(ctx, operator, key)
@@ -471,6 +532,7 @@ func (c *WorkspaceCreator) ReconcileInstallationOperation(ctx context.Context, o
 	if err != nil {
 		return view, err
 	}
+	w.observeQuotaOutcome(o.InstallationOperation)
 	view = operationView(o)
 	if o.Phase != string(expectedPhase) {
 		return view, sqlite.ErrInstallationOperationConflict
@@ -546,9 +608,15 @@ func (c *WorkspaceCreator) ReconcileInstallationOperation(ctx context.Context, o
 	if err = w.lease.Validate(); err != nil {
 		return view, err
 	}
+	knownBefore := w.quotaKnown
+	w.quotaPending, w.quotaKnown = true, false
 	if err = c.finalize(ctx, operator, o, true); err != nil {
+		if !errors.Is(err, sqlite.ErrUnknown) {
+			w.quotaKnown = knownBefore
+		}
 		return view, err
 	}
 	o.Phase, o.Outcome = string(sqlite.RegistrationConfirmed), string(sqlite.InstallationCommitted)
+	w.observeQuotaOutcome(o.InstallationOperation)
 	return operationView(o), nil
 }

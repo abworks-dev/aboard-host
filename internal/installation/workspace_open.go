@@ -49,10 +49,7 @@ func (o *WorkspaceOpener) owner(ctx context.Context, a *Authorization) (*workspa
 		if s.workspaceStopping {
 			return nil, scope, workspace.ErrLifecycle
 		}
-		if s.workspaceCapacity == nil {
-			s.workspaceCapacity = workspace.NewOperationCapacity()
-		}
-		owner, err = workspace.NewOpenOwnerWithCapacity(scope, lifecycle, s.workspaceCapacity)
+		owner, err = workspace.NewOpenOwnerWithCapacity(scope, lifecycle, s.capacityLocked())
 		if err != nil {
 			return nil, scope, err
 		}
@@ -84,7 +81,7 @@ func (o *WorkspaceOpener) OpenWorkspace(ctx context.Context, a *Authorization, e
 	if err != nil {
 		return workspace.OpenView{}, err
 	}
-	return owner.Open(ctx, scope, check, func(ctx context.Context, epoch string) (workspace.OpenEvidence, error) {
+	return owner.Open(ctx, scope, check, func(ctx context.Context, epoch string) (result workspace.OpenEvidence, err error) {
 		s := o.auth.store
 		s.mu.Lock()
 		if err := a.checkLocked(ctx); err != nil {
@@ -98,6 +95,12 @@ func (o *WorkspaceOpener) OpenWorkspace(ctx context.Context, a *Authorization, e
 		s.liveWorkspaceHandles++
 		s.mu.Unlock()
 		r := &openResources{store: s, scope: scope, active: true}
+		defer func() {
+			if errors.Is(err, platform.ErrPhysicalCloseUnknown) {
+				r.quarantined = true
+				r.nativeFailure = err
+			}
+		}()
 		evidence := workspace.OpenEvidence{Resources: r}
 		r.lease, err = platform.Acquire(a.location.RootLocator, platform.Workspace, false, false)
 		if err != nil {
@@ -161,6 +164,9 @@ func (o *WorkspaceOpener) OpenWorkspace(ctx context.Context, a *Authorization, e
 			return evidence, err
 		}
 		evidence.Snapshot, err = r.facts.Snapshot(ctx, scope)
+		if err == nil {
+			evidence.SaveOperationIDs, err = r.gate.SaveOperationIDs(ctx, scope)
+		}
 		evidence.NeedsInvestigation = r.pending
 		return evidence, err
 	})
@@ -191,6 +197,7 @@ type openResources struct {
 	store                        *Store
 	scope                        workspace.Scope
 	active, pending, quarantined bool
+	nativeFailure                error // retain failed native factory resources, even nil+error
 	lease                        *platform.Lease
 	descriptorPin, databasePin   *platform.File
 	database                     *sqlite.Database
@@ -209,7 +216,13 @@ func (r *openResources) Validate() error {
 	}
 	return r.lease.Validate()
 }
-func (r *openResources) Close() error {
+func (r *openResources) Close() (err error) {
+	defer func() {
+		if errors.Is(err, platform.ErrPhysicalCloseUnknown) {
+			r.quarantined = true
+			r.nativeFailure = err
+		}
+	}()
 	if r.quarantined || r.pending {
 		return workspace.ErrOpenUncertain
 	}

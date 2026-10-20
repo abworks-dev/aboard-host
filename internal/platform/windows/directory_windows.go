@@ -47,7 +47,7 @@ func (f *File) Close() error {
 		return nil
 	}
 	if err := win.CloseHandle(f.handle); err != nil {
-		return err
+		return physicalCloseUnknown(err, f)
 	}
 	f.closed = true
 	return nil
@@ -94,6 +94,19 @@ func (l *Lease) Validate() error {
 	}
 	return l.lock.Validate()
 }
+
+// ClosePinnedFiles drains every key owned by this lease, including a key whose
+// post-open validation failed before PinFile could return it. No IO user may be
+// active. Close still independently refuses live keys before releasing its lock.
+func (l *Lease) ClosePinnedFiles() error {
+	for i := len(l.keys) - 1; i >= 0; i-- {
+		if err := l.keys[i].Close(); err != nil {
+			return retainPhysicalClose(err, l)
+		}
+	}
+	return nil
+}
+
 func (l *Lease) Close() error {
 	// This checks tracked file pins, but cannot observe arbitrary SQLite,
 	// worker or provider IO: the caller still owns physical drain.
@@ -102,14 +115,12 @@ func (l *Lease) Close() error {
 			return errors.New("close key-file pins before releasing the writer lock")
 		}
 	}
-	if err := l.lock.Close(); err != nil {
-		return err
+	// Exclusion is last: an ancestor pin close failure must not release the
+	// writer/installation lock while earlier native resources remain unknown.
+	if err := closePins(l.pins); err != nil {
+		return retainPhysicalClose(err, l)
 	}
-	var errs []error
-	for i := len(l.pins) - 1; i >= 0; i-- {
-		errs = append(errs, l.pins[i].Close())
-	}
-	return errors.Join(errs...)
+	return retainPhysicalClose(l.lock.Close(), l)
 }
 
 // Acquire opens an existing directory and fixed lock. create only creates the
@@ -138,9 +149,7 @@ func Acquire(root string, scope Scope, create, readOnly bool) (_ *Lease, err err
 	}
 	defer func() {
 		if err != nil {
-			for i := len(pins) - 1; i >= 0; i-- {
-				err = errors.Join(err, pins[i].Close())
-			}
+			err = unwindPins(err, pins)
 		}
 	}()
 	var rootID Identity
@@ -163,7 +172,7 @@ func Acquire(root string, scope Scope, create, readOnly bool) (_ *Lease, err err
 	}
 	lease := &Lease{root: root, pins: pins, lock: lock, id: rootID}
 	if err = lease.Validate(); err != nil {
-		return nil, errors.Join(err, lock.Close())
+		return nil, unwindPins(err, []*File{lock}, lease)
 	}
 	return lease, nil
 }
@@ -215,7 +224,7 @@ func (l *Lease) PinFile(relative string, freeze bool) (_ *File, err error) {
 	}
 	l.keys = append(l.keys, f)
 	if err := l.Validate(); err != nil {
-		return nil, errors.Join(err, f.Close())
+		return nil, retainPhysicalClose(errors.Join(err, f.Close()), l, f)
 	}
 	return f, nil
 }
@@ -287,10 +296,7 @@ func pinDirectories(path string) (pins []*File, err error) {
 			p, e = openRelativePinned(pins[len(pins)-1], filepath.Base(part), win.FILE_READ_ATTRIBUTES|win.FILE_LIST_DIRECTORY, win.FILE_SHARE_READ, win.OPEN_EXISTING, true)
 		}
 		if e != nil {
-			for i := len(pins) - 1; i >= 0; i-- {
-				e = errors.Join(e, pins[i].Close())
-			}
-			return nil, e
+			return nil, unwindPins(e, pins)
 		}
 		pins = append(pins, p)
 	}
@@ -344,13 +350,16 @@ func openRelativePinned(parent *File, name string, access, share, creation uint3
 		return nil, fmt.Errorf("relative fixed object: %w", err)
 	}
 	if err := parent.Validate(); err != nil {
-		return nil, errors.Join(err, win.CloseHandle(h))
+		f := &File{handle: h, path: filepath.Join(parent.path, name), dir: directory}
+		return nil, retainPhysicalClose(errors.Join(err, f.Close()), parent, f)
 	}
-	return adoptPinned(h, filepath.Join(parent.path, name), directory)
+	f, err := adoptPinned(h, filepath.Join(parent.path, name), directory)
+	return f, retainPhysicalClose(err, parent)
 }
 
 func adoptPinned(h win.Handle, path string, directory bool) (*File, error) {
-	fail := func(e error) (*File, error) { return nil, errors.Join(e, win.CloseHandle(h)) }
+	f := &File{handle: h, path: path, dir: directory}
+	fail := func(e error) (*File, error) { return nil, errors.Join(e, f.Close()) }
 	if err := win.SetHandleInformation(h, win.HANDLE_FLAG_INHERIT, 0); err != nil {
 		return fail(err)
 	}
@@ -361,7 +370,8 @@ func adoptPinned(h win.Handle, path string, directory bool) (*File, error) {
 	if dir != directory {
 		return fail(errors.New("unexpected file/directory kind"))
 	}
-	return &File{handle: h, path: path, id: id, dir: dir}, nil
+	f.id, f.dir = id, dir
+	return f, nil
 }
 
 func inspectHandle(h win.Handle, path string) (Identity, bool, error) {

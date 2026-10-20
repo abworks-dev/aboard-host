@@ -5,6 +5,7 @@
 package httptransport
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -16,8 +17,10 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/abworks-dev/aboard-host/internal/installation"
+	platform "github.com/abworks-dev/aboard-host/internal/platform/windows"
 	"github.com/abworks-dev/aboard-host/internal/protocol"
 	"github.com/abworks-dev/aboard-host/internal/storage/sqlite"
 	"github.com/abworks-dev/aboard-host/internal/workspace"
@@ -32,6 +35,7 @@ type Event struct {
 }
 type Handler struct {
 	auth        *installation.Authenticator
+	store       *installation.Store
 	creator     *installation.WorkspaceCreator
 	directories *installation.DirectoryCoordinator
 	inspector   *installation.DirectoryInspector
@@ -39,6 +43,7 @@ type Handler struct {
 	authority   string
 	log         func(Event)
 	sequence    atomic.Uint64
+	drain       *requestDrain
 }
 
 func New(auth *installation.Authenticator, store *installation.Store, scratch, authority string, log func(Event)) (*Handler, error) {
@@ -64,7 +69,7 @@ func New(auth *installation.Authenticator, store *installation.Store, scratch, a
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{auth: auth, creator: c, directories: d, inspector: i, opener: o, authority: authority, log: log}, nil
+	return &Handler{auth: auth, store: store, creator: c, directories: d, inspector: i, opener: o, authority: authority, log: log, drain: newRequestDrain()}, nil
 }
 func (h *Handler) correlation() protocol.CorrelationId {
 	var b [16]byte
@@ -99,6 +104,9 @@ func (h *Handler) write(w http.ResponseWriter, status int, v any, corr protocol.
 	h.emit(Event{CorrelationID: string(corr), Operation: op, Status: status})
 }
 func (h *Handler) fail(w http.ResponseWriter, status int, code protocol.ErrorCode, corr protocol.CorrelationId, op, key string, install bool) {
+	// Rejected unread bodies are explicitly closed under an expired read
+	// deadline by ServeHTTP's finalizer, never implicitly drained/reused.
+	w.Header().Set("Connection", "close")
 	v := protocol.ErrorView{Code: code, Outcome: "rejected", CorrelationId: corr, RetryPolicy: "none", SafeMessage: "The request cannot be completed in the current authorized state."}
 	if code == protocol.ErrorCodeCOMMITUNKNOWN || code == protocol.ErrorCodeINSTALLATIONSTATEUNKNOWN || code == protocol.ErrorCodeREGISTRATIONPENDING || code == protocol.ErrorCodeVIEWDELIVERYFAILED {
 		v.Outcome = "unknown"
@@ -131,9 +139,12 @@ func (h *Handler) fail(w http.ResponseWriter, status int, code protocol.ErrorCod
 func (h *Handler) failure(w http.ResponseWriter, err error, corr protocol.CorrelationId, op, key string, install bool) {
 	code, status := protocol.ErrorCodeRECOVERYREQUIRED, 409
 	var inspection *installation.InspectionFailure
+	var nativeStatus win.NTStatus
 	switch {
 	case errors.Is(err, installation.ErrAuthorizationUnknown):
-		code, status = protocol.ErrorCodeINSTALLATIONSTATEUNKNOWN, 503
+		// Authorization state belongs to the shared installation owner even
+		// when it fails before routing or while authorizing a workspace call.
+		code, status, install = protocol.ErrorCodeINSTALLATIONSTATEUNKNOWN, 503, true
 	case errors.Is(err, installation.ErrUnauthorized), errors.Is(err, workspace.ErrOperationAccess):
 		code, status = protocol.ErrorCodeFORBIDDEN, 403
 	case errors.Is(err, workspace.ErrCapacity):
@@ -144,6 +155,10 @@ func (h *Handler) failure(w http.ResponseWriter, err error, corr protocol.Correl
 		code, status = protocol.ErrorCodeOPERATIONHISTORYUNAVAILABLE, 409
 	case errors.Is(err, workspace.ErrSaveKeyReuse), errors.Is(err, sqlite.ErrInstallationOperationConflict):
 		code = protocol.ErrorCodeOPERATIONKEYREUSE
+	case errors.Is(err, workspace.ErrOpenUncertain), errors.Is(err, sqlite.ErrUnknown), errors.Is(err, sqlite.ErrFenced):
+		// Current access/key checks still come first. A cleanup cause joined to
+		// persistence uncertainty cannot authorize newPreview or assert rejection.
+		code, status = protocol.ErrorCodeCOMMITUNKNOWN, 503
 	case errors.Is(err, workspace.ErrStaleHandle):
 		code = protocol.ErrorCodeSTALEHANDLE
 	case errors.Is(err, workspace.ErrBaseline), errors.Is(err, sqlite.ErrConflict):
@@ -152,8 +167,8 @@ func (h *Handler) failure(w http.ResponseWriter, err error, corr protocol.Correl
 		code, status = protocol.ErrorCodeINVALIDINPUT, 400
 	case errors.Is(err, workspace.ErrLifecycle):
 		code = protocol.ErrorCodeWORKSPACECLOSED
-	case errors.Is(err, workspace.ErrOpenUncertain), errors.Is(err, sqlite.ErrUnknown), errors.Is(err, sqlite.ErrFenced):
-		code, status = protocol.ErrorCodeCOMMITUNKNOWN, 503
+	case errors.Is(err, platform.ErrDirectoryNotEmpty):
+		code = protocol.ErrorCodeDIRECTORYNOTEMPTY
 	case errors.Is(err, installation.ErrWorkspaceCreation), errors.Is(err, installation.ErrDirectoryBinding):
 		code, status = protocol.ErrorCodeREGISTRATIONPENDING, 503
 	case errors.As(err, &inspection):
@@ -168,7 +183,10 @@ func (h *Handler) failure(w http.ResponseWriter, err error, corr protocol.Correl
 		code = protocol.ErrorCodeINCOMPLETEDIRECTORY
 	case errors.Is(err, sqlite.ErrSchema):
 		code = protocol.ErrorCodeUNSUPPORTEDSCHEMA
-	case errors.Is(err, win.ERROR_SHARING_VIOLATION):
+	case errors.Is(err, win.ERROR_SHARING_VIOLATION), errors.Is(err, win.ERROR_LOCK_VIOLATION), errors.As(err, &nativeStatus) && nativeStatus == win.STATUS_SHARING_VIOLATION:
+		// The fixed relative-object adapter uses NtCreateFile and preserves its
+		// NTStatus. Keep the same narrow native contention set as the writer
+		// boundary; path/ACL errors are not busy and uncertainty above wins.
 		code = protocol.ErrorCodeWRITERBUSY
 	}
 	if install && code == protocol.ErrorCodeCOMMITUNKNOWN {
@@ -179,12 +197,38 @@ func (h *Handler) failure(w http.ResponseWriter, err error, corr protocol.Correl
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	corr := h.correlation()
 	op := "boundary"
+	var reservation *workspace.OperationReservation
+	var leave func()
+	bodyComplete := false
+	installationScope := false
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Correlation-ID", string(corr))
 	defer func() {
+		// Even failure/panic delivery owns its claim until Flush actually returns.
+		// Transport completion is not proof of client ACK or business rollback.
+		defer func() {
+			reservation.Release()
+			if leave != nil {
+				leave()
+			}
+		}()
 		if recover() != nil {
-			h.fail(w, 503, protocol.ErrorCodeCOMMITUNKNOWN, corr, op, "", false)
+			code := protocol.ErrorCodeCOMMITUNKNOWN
+			if installationScope {
+				code = protocol.ErrorCodeINSTALLATIONSTATEUNKNOWN
+			}
+			h.fail(w, 503, code, corr, op, "", installationScope)
+		}
+		if !bodyComplete && r != nil && r.Body != nil {
+			// The standard server otherwise drains up to 256 KiB in Flush or
+			// finishRequest AFTER our quota reference is released. Deadline the
+			// unread body and join its Close here; never wait for attacker bytes.
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+			_ = r.Body.Close()
+		}
+		if err := http.NewResponseController(w).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			h.emit(Event{string(corr), op, protocol.ErrorCodeVIEWDELIVERYFAILED, 0})
 		}
 	}()
 	// Authorize the concrete connection boundary before resolving a resource. An
@@ -213,20 +257,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", false)
 		return
 	}
-	action := route.Action
-	if action == "authenticated" {
-		action = ""
-	}
 	ws := route.Parameters["workspaceId"]
-	installationScope := ws == "" || route.ID == "relinkWorkspace"
-	a := identity
-	if action != "" {
-		a, err = h.auth.AuthorizeHTTP(r.Context(), r, h.authority, ws, action)
-		if err != nil {
-			h.failure(w, err, corr, op, "", installationScope)
-			return
-		}
+	installationScope = ws == "" || route.ID == "relinkWorkspace"
+	var admitted bool
+	leave, admitted = h.drain.enter(route)
+	if !admitted {
+		h.fail(w, 409, protocol.ErrorCodeWORKSPACEDRAINING, corr, op, "", installationScope)
+		return
 	}
+	a, err := h.authorizeRoute(r, identity, route)
+	if err != nil {
+		h.failure(w, err, corr, op, "", installationScope)
+		return
+	}
+	reservation, err = h.reserveRequest(r, a, route)
+	if err != nil {
+		// An unconsumed request body cannot be reused on this connection.
+		w.Header().Set("Connection", "close")
+		h.failure(w, err, corr, op, route.Parameters["operationId"], installationScope)
+		return
+	}
+	r = r.WithContext(reservation.Context(r.Context()))
 	if len(r.Header.Values("Content-Encoding")) != 0 || (r.Header.Get("Content-Length") != "" && r.ContentLength < 0) {
 		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", installationScope)
 		return
@@ -244,6 +295,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", installationScope)
 		return
 	}
+	bodyComplete = true // ReadAll reached EOF within the raw request bound.
 	if len(raw) > 0 && (len(r.Header.Values("Content-Type")) != 1 || r.Header.Get("Content-Type") != "application/json") {
 		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", installationScope)
 		return
@@ -251,6 +303,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if protocol.ValidateOperationBody(op, raw) != nil {
 		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", installationScope)
 		return
+	}
+	if r.Context().Err() != nil {
+		h.fail(w, 400, protocol.ErrorCodeINVALIDINPUT, corr, op, "", installationScope)
+		return
+	}
+	// Entering a body read is not business admission. Recheck the cutoff only
+	// after a complete validated command; a held body cannot introduce a new
+	// creation/binding intent after shutdown froze ordinary work. This short
+	// metadata check is the command acceptance point, not a physical IO lock.
+	if !investigationRoute(route) && h.isDraining() {
+		h.fail(w, 409, protocol.ErrorCodeWORKSPACEDRAINING, corr, op, "", installationScope)
+		return
+	}
+	if r.Method == http.MethodPost {
+		// Raw request parsing remains cancelable. A validated authorized command
+		// is now Host-owned; disconnect is not cancellation of accepted work.
+		r = r.WithContext(context.WithoutCancel(r.Context()))
 	}
 	h.dispatch(w, r, a, route, query, raw, corr)
 }

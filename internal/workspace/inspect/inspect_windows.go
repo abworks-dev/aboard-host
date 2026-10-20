@@ -10,7 +10,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,8 +43,10 @@ type Report struct {
 	DatabaseUserVersion  int
 	IntegrityOK          bool
 	ScratchCleanupFailed bool
-	scratchWrites        uint64
-	scratchBytes         uint64
+	// Retained must remain owned until Close succeeds; never serialize it.
+	Retained      *Resources
+	scratchWrites uint64
+	scratchBytes  uint64
 }
 
 // Inspect requires the caller to authorize this root before any target access.
@@ -60,9 +61,29 @@ func inspect(ctx context.Context, root, scratchParent string, cleanup func(strin
 }
 
 type snapshotValidator func(context.Context, string, *sql.Conn) error
-type descriptorGate func(context.Context, *platform.File) error
+type descriptorGate func(context.Context, *platform.File, *Resources) error
 
 func inspectValidated(ctx context.Context, root, scratchParent string, cleanup func(string) error, metadata descriptorGate, validate snapshotValidator) (report Report, err error) {
+	resources := &Resources{cleanup: cleanup}
+	report, err = inspectUsing(ctx, root, scratchParent, resources, metadata, validate)
+	return finishReport(report, resources, err)
+}
+
+func finishReport(report Report, resources *Resources, err error) (Report, error) {
+	if closeErr := resources.Close(); closeErr != nil {
+		report.Retained = resources
+		report.ScratchCleanupFailed = true
+		err = errors.Join(err, closeErr)
+	}
+	return report, err
+}
+
+func inspectUsing(ctx context.Context, root, scratchParent string, resources *Resources, metadata descriptorGate, validate snapshotValidator) (report Report, err error) {
+	defer func() {
+		if errors.Is(err, store.ErrPhysicalCloseUnknown) || errors.Is(err, platform.ErrPhysicalCloseUnknown) {
+			resources.poison = errors.Join(resources.poison, err)
+		}
+	}()
 	if err = ctx.Err(); err != nil {
 		return report, err
 	}
@@ -80,13 +101,7 @@ func inspectValidated(ctx context.Context, root, scratchParent string, cleanup f
 		}
 		return report, errors.Join(ErrUnavailable, err)
 	}
-	var files []*platform.File
-	defer func() {
-		for i := len(files) - 1; i >= 0; i-- {
-			err = errors.Join(err, files[i].Close())
-		}
-		err = errors.Join(err, lease.Close())
-	}()
+	resources.lease = lease
 	descriptor, err := lease.PinFile("aboard.workspace.json", true)
 	if err != nil {
 		if absentSource(err) {
@@ -94,11 +109,11 @@ func inspectValidated(ctx context.Context, root, scratchParent string, cleanup f
 		}
 		return report, errors.Join(ErrUnavailable, err)
 	}
-	files = append(files, descriptor)
+	resources.files = append(resources.files, descriptor)
 	// Current tenant must be established from frozen metadata before even
 	// pinning or diagnosing the database. Unknown scope exposes no detail.
 	if metadata != nil {
-		if err = metadata(ctx, descriptor); err != nil {
+		if err = metadata(ctx, descriptor, resources); err != nil {
 			return report, err
 		}
 	}
@@ -109,12 +124,17 @@ func inspectValidated(ctx context.Context, root, scratchParent string, cleanup f
 		}
 		return report, errors.Join(ErrUnavailable, err)
 	}
-	files = append(files, database)
+	resources.files = append(resources.files, database)
 	// The source DB and data directory are now retained. Reject every SQLite
 	// sidecar including hot rollback, WAL/SHM and super-journal candidates; never
 	// ask SQLite to inspect/recover the live original or delete its sidecars.
-	entries, err := os.ReadDir(filepath.Join(root, "data"))
+	directory, err := os.Open(filepath.Join(root, "data"))
 	if err != nil {
+		return report, errors.Join(ErrUnavailable, err)
+	}
+	directoryOwner := resources.own(directory)
+	entries, readErr := directory.ReadDir(-1)
+	if err = errors.Join(readErr, resources.closeOwned(directoryOwner)); err != nil {
 		return report, errors.Join(ErrUnavailable, err)
 	}
 	for _, entry := range entries {
@@ -130,33 +150,15 @@ func inspectValidated(ctx context.Context, root, scratchParent string, cleanup f
 		return report, err
 	}
 	scratch, err := platform.NewScratch(scratchParent, "inspect-"+hex.EncodeToString(nonce[:]))
+	resources.scratch = scratch // partial factory resources are owned even on error
 	if err != nil {
 		return report, err
 	}
-	defer func() {
-		// Delete only this freshly created, explicitly known private child, never a
-		// caller-supplied root. Cleanup failures do not turn into source repair.
-		defer func() {
-			if closeErr := scratch.Close(); closeErr != nil {
-				report.ScratchCleanupFailed = true
-				err = errors.Join(err, closeErr)
-			}
-		}()
-		if cleanupErr := scratch.PrepareCleanup(); cleanupErr != nil {
-			report.ScratchCleanupFailed = true
-			err = errors.Join(err, fmt.Errorf("sensitive scratch release failed: %w", cleanupErr))
-			return
-		}
-		if cleanupErr := cleanup(scratch.Path()); cleanupErr != nil {
-			report.ScratchCleanupFailed = true
-			err = errors.Join(err, fmt.Errorf("sensitive scratch cleanup failed: %w", cleanupErr))
-		}
-	}()
 	for _, item := range []struct {
 		source *platform.File
 		name   string
 	}{{descriptor, "descriptor.json"}, {database, "workspace.sqlite"}} {
-		if err = copyFrozen(ctx, item.source, scratch, item.name, &report); err != nil {
+		if err = copyFrozen(ctx, item.source, scratch, item.name, &report, resources); err != nil {
 			return report, err
 		}
 	}
@@ -164,10 +166,10 @@ func inspectValidated(ctx context.Context, root, scratchParent string, cleanup f
 		return report, errors.Join(ErrUnavailable, err)
 	}
 	handle, err := store.Open(ctx, filepath.Join(scratch.Path(), "workspace.sqlite"), store.ReadOnlyScratch)
+	resources.database = handle
 	if err != nil {
 		return report, errors.Join(ErrUnavailable, err)
 	}
-	defer func() { err = errors.Join(err, handle.Close()) }()
 	if validate != nil {
 		if err = validate(ctx, scratch.Path(), handle.Conn); err != nil {
 			return report, errors.Join(ErrUnavailable, err)
@@ -195,7 +197,7 @@ func within(parent, child string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func copyFrozen(ctx context.Context, source *platform.File, scratch *platform.Scratch, name string, report *Report) (err error) {
+func copyFrozen(ctx context.Context, source *platform.File, scratch *platform.Scratch, name string, report *Report, resources *Resources) (err error) {
 	if err = source.Validate(); err != nil {
 		return err
 	}
@@ -205,7 +207,8 @@ func copyFrozen(ctx context.Context, source *platform.File, scratch *platform.Sc
 		return err
 	}
 	in := os.NewFile(uintptr(duplicate), "frozen-source")
-	defer func() { err = errors.Join(err, in.Close()) }()
+	inOwner := resources.own(in)
+	defer func() { err = errors.Join(err, resources.closeOwned(inOwner)) }()
 	// DuplicateHandle shares the source pointer with metadata preflight. Reset
 	// explicitly; no two reads of a source are performed concurrently.
 	if _, err = in.Seek(0, io.SeekStart); err != nil {
@@ -215,7 +218,8 @@ func copyFrozen(ctx context.Context, source *platform.File, scratch *platform.Sc
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, out.Close()) }()
+	outOwner := resources.own(out)
+	defer func() { err = errors.Join(err, resources.closeOwned(outOwner)) }()
 	buf := make([]byte, 64*1024)
 	var copied int64
 	for {

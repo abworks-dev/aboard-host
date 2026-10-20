@@ -111,11 +111,22 @@ func (o *OpenOwner) CommitRecord(ctx context.Context, scope Scope, principal str
 		return SaveResult{Status: SaveRejected}, ErrSaveInput
 	}
 	investigationOnly := state != LifecycleOpen || o.view.NeedsInvestigation || o.view.Epoch == ""
+	insertedKey, err := o.reserveSaveKey(in.OperationID, investigationOnly)
+	if err != nil {
+		return SaveResult{Status: SaveRejected}, err
+	}
+	keepKey := false
+	defer func() {
+		if insertedKey && !keepKey {
+			o.forgetUnadmittedSaveKey(in.OperationID)
+		}
+	}()
 	uncertain := func(cause error) (SaveResult, error) {
+		keepKey = true
 		// A fenced same-key inquiry cannot start persistence IO. Its unknown
 		// result must not allocate another unfinished physical-operation slot.
 		if !investigationOnly {
-			ticket.retain("save:" + in.OperationID)
+			ticket.retainFor("save:"+in.OperationID, principal)
 		}
 		store.RetainSaveUncertainty()
 		o.view.NeedsInvestigation = true
@@ -134,6 +145,9 @@ func (o *OpenOwner) CommitRecord(ctx context.Context, scope Scope, principal str
 		return SaveResult{Status: SaveRejected}, err
 	}
 	result, admitted, saveErr := store.AdmitSave(ctx, scope, r, investigationOnly)
+	// Classify the admission result, NOT a later commit/delivery error. Only
+	// this call's NEW reservation can be forgotten after proven non-admission.
+	keepKey = admitted != nil || result.Status != SaveRejected || result.FailureCode != "" || errors.Is(saveErr, ErrSaveKeyReuse)
 	if result.Status == SaveUnknown {
 		return uncertain(saveErr)
 	}

@@ -37,6 +37,7 @@ type Store struct {
 	materialPin, databasePin *platform.File
 	closed                   bool
 	openFailure              bool
+	nativeFailure            error // retain captured native factory/close owner
 	// Authorization persistence uncertainty fences shared authorization uses,
 	// not physical IO: it must never masquerade as a failed database Close.
 	authUncertain bool
@@ -53,6 +54,7 @@ type Store struct {
 	liveWorkspaceHandles      int // under mu; retain installation through physical open/drain
 	workspaceCapacity         *workspace.OperationCapacity
 	workspaceStopping         bool
+	inspections               map[*inspectionOwner]struct{} // native IO/deletion owners, under mu
 }
 
 func (s *Store) Identity() Identity { s.mu.Lock(); defer s.mu.Unlock(); return s.identity }
@@ -86,6 +88,7 @@ func Initialize(ctx context.Context, root string) (*Store, error) {
 	if err != nil {
 		if errors.Is(err, sqlite.ErrPhysicalCloseUnknown) {
 			s.openFailure = true
+			s.nativeFailure = err // nil database factory may retain its failed owner only here
 			return s, errors.Join(ErrInstallation, err)
 		}
 		return s.fail(err)
@@ -125,10 +128,14 @@ func Open(ctx context.Context, root string) (*Store, error) {
 	if err != nil {
 		return s.fail(err)
 	}
+	if err = lease.InstallationDatabaseHasNoSidecars(); err != nil {
+		return s.fail(err)
+	}
 	s.db, err = sqlite.OpenDatabase(ctx, filepath.Join(root, "installation.sqlite"), sqlite.ReadWriteExisting, sqlite.Genesis{Kind: sqlite.InstallationDatabase})
 	if err != nil {
 		if errors.Is(err, sqlite.ErrPhysicalCloseUnknown) {
 			s.openFailure = true
+			s.nativeFailure = err // nil database factory may retain its failed owner only here
 			return s, errors.Join(ErrInstallation, err)
 		}
 		return s.fail(err)
@@ -173,6 +180,10 @@ func (s *Store) verify(ctx context.Context, sid string) error {
 	return s.lease.ValidateInstallation(s.root)
 }
 func (s *Store) fail(cause error) (*Store, error) {
+	if errors.Is(cause, platform.ErrPhysicalCloseUnknown) || errors.Is(cause, sqlite.ErrPhysicalCloseUnknown) {
+		s.openFailure = true
+		s.nativeFailure = cause
+	}
 	if err := s.Close(); err != nil {
 		return s, errors.Join(ErrInstallation, cause, err)
 	}
@@ -181,14 +192,23 @@ func (s *Store) fail(cause error) (*Store, error) {
 
 // Close physically closes the database before clearing material or releasing
 // any fixed file/OS lease. An error never claims the installation is released.
-func (s *Store) Close() error {
+func (s *Store) Close() (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer func() {
+		if errors.Is(err, platform.ErrPhysicalCloseUnknown) {
+			s.openFailure = true
+			s.nativeFailure = err
+		}
+	}()
 	if s.closed {
 		return nil
 	}
 	if s.pendingDeliveries != 0 {
 		return ErrSessionDeliveryPending
+	}
+	if len(s.inspections) != 0 {
+		return ErrInspectionPending
 	}
 	if s.pendingWorkspaceCreations != 0 {
 		return ErrWorkspaceCreationPending

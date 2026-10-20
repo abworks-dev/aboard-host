@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"unsafe"
 
 	win "golang.org/x/sys/windows"
@@ -37,6 +38,47 @@ func (l *Lease) installationRoot() (*File, error) {
 		}
 	}
 	return nil, errors.New("missing installation root pin")
+}
+
+// InstallationDatabaseHasNoSidecars checks the held native directory BEFORE any
+// writable SQLite open. An unproved installation journal must not cause implicit
+// rollback of an unfinished genesis just to discover that its schema is invalid.
+// This is refusal only, not an installation recovery or migration entry point.
+func (l *Lease) InstallationDatabaseHasNoSidecars() error {
+	root, err := l.installationRoot()
+	if err != nil {
+		return err
+	}
+	var parent *File
+	for _, pin := range l.pins {
+		if sameDOSSpelling(pin.path, filepath.Dir(l.root)) {
+			parent = pin
+			break
+		}
+	}
+	if parent == nil {
+		return errors.New("missing installation parent pin")
+	}
+	listed, err := openRelativePinned(parent, filepath.Base(l.root), win.FILE_LIST_DIRECTORY|win.FILE_READ_ATTRIBUTES, win.FILE_SHARE_READ, win.OPEN_EXISTING, true)
+	if err != nil {
+		return err
+	}
+	// Publish ownership before all subsequent validation/query failures. Close
+	// uncertainty is then retained by the original lease/Store, not a defer.
+	l.pins = append(l.pins, listed)
+	if listed.id != root.id {
+		return errors.New("installation directory identity changed")
+	}
+	names, err := directoryNames(listed)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if strings.HasPrefix(strings.ToLower(name), "installation.sqlite-") {
+			return errors.New("installation database sidecar requires investigation")
+		}
+	}
+	return l.ValidateInstallation(l.root)
 }
 
 // PinInstallationFile pins only the two installation-owned fixed files. The

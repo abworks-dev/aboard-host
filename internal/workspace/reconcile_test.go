@@ -21,6 +21,63 @@ func (r *operationTestResources) ReconcileSaveOperation(ctx context.Context, _ S
 }
 func (r *operationTestResources) RetainSaveUncertainty() { r.retained++ }
 
+func TestColdReconcileDrainsBeforeQueuedOpenPublishesUsableGeneration(t *testing.T) {
+	o, l, scope := openTestOwner(t)
+	ctx := context.Background()
+	allow := func(context.Context) error { return nil }
+	r := &operationTestResources{openTestResources: openTestResources{closeErr: ErrOpenUncertain}}
+	if v, err := o.Open(ctx, scope, allow, func(context.Context, string) (OpenEvidence, error) {
+		return OpenEvidence{Resources: r}, ErrOpenUncertain
+	}); !errors.Is(err, ErrOpenUncertain) || v.Epoch != "" {
+		t.Fatal(v, err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	r.reconcile = func(context.Context) (OperationEvidence, error) {
+		close(entered)
+		<-release
+		r.closeErr = nil
+		return OperationEvidence{Result: SaveResult{Status: SaveNotCommitted}, PhysicalEnded: true, RequiresReopen: true}, nil
+	}
+	reconciled := make(chan error, 1)
+	go func() {
+		_, err := o.ReconcileSaveOperation(ctx, scope, scope.TenantID, scope.WorkspaceID, allow)
+		reconciled <- err
+	}()
+	<-entered
+	fresh := &openTestResources{}
+	opened := make(chan OpenView, 1)
+	openErr := make(chan error, 1)
+	go func() {
+		v, err := o.Open(ctx, scope, allow, func(context.Context, string) (OpenEvidence, error) {
+			return OpenEvidence{Resources: fresh, Snapshot: Snapshot{Identity: Identity{WorkspaceID: scope.WorkspaceID, TenantID: scope.TenantID, BusinessState: "ready"}}}, nil
+		})
+		opened <- v
+		openErr <- err
+	}()
+	waitQueueUsage(t, o.queue, 3)
+	close(release)
+	if err := <-reconciled; err != nil {
+		t.Fatal(err)
+	}
+	v := <-opened
+	if err := <-openErr; err != nil || v.Epoch == "" {
+		t.Fatal(v, err)
+	}
+	if state, _ := l.State(scope); state != LifecycleOpen || r.closed != 2 || o.queue.capacity.Usage() != 0 {
+		t.Fatal(state, r.closed, o.queue.capacity.Usage())
+	}
+	key := "10000000-0000-4000-8000-000000000004"
+	if _, err := o.CloseWorkspace(ctx, scope, scope.TenantID, key, v.Epoch, allow); err != nil {
+		t.Fatal("queued reopen published a retired queue generation", err)
+	}
+	if closed, err := o.WaitClose(ctx, scope, scope.TenantID, key, false, allow); err != nil || !closed.Closed || fresh.closed != 1 {
+		t.Fatal(closed, err, fresh.closed)
+	}
+	if _, err := o.GetSaveOperation(ctx, scope, scope.TenantID, scope.WorkspaceID, false, allow); !errors.Is(err, ErrLifecycle) {
+		t.Fatal("closed save inquiry must require explicit authorized reopen", err)
+	}
+}
+
 func TestSaveOperationCanceledReadIsDeliveryNotUncertainty(t *testing.T) {
 	owner, l, scope := openTestOwner(t)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -207,7 +207,7 @@ func TestHTTPBusinessClosureUsesActualPipeSQLiteAndNetwork(t *testing.T) {
 	}
 	oldBody := strings.Repeat("\x01", 65536)
 	status, raw = f.request(t, "POST", prefix+"/record-previews", encode(t, protocol.PreviewRecord{OpenEpoch: *av.OpenEpoch, Kind: "create-text", BaseRevision: "0", Title: "synthetic", Body: protocol.Body(oldBody)}))
-	requireStatus(t, status, 200)
+	requireStatus(t, status, 201)
 	var preview protocol.CandidateView
 	decodeResponse(t, raw, &preview)
 	commit := protocol.CommitRecord{OperationId: "63000000-0000-4000-8000-000000000001", OpenEpoch: *av.OpenEpoch, CandidateId: preview.CandidateId, CandidateDigest: preview.CandidateDigest, PreviewVersion: preview.PreviewVersion}
@@ -231,7 +231,7 @@ func TestHTTPBusinessClosureUsesActualPipeSQLiteAndNetwork(t *testing.T) {
 	digest := record.ContentDigest
 	id := record.ResourceId
 	status, raw = f.request(t, "POST", prefix+"/record-previews", encode(t, protocol.PreviewRecord{OpenEpoch: *av.OpenEpoch, Kind: "update-text", ResourceId: &id, BaseRevision: "1", BaseDigest: &digest, Title: "updated", Body: protocol.Body(newBody)}))
-	requireStatus(t, status, 200)
+	requireStatus(t, status, 201)
 	if len(raw) <= protocol.RequestMaxBytes {
 		t.Fatal("large legal response fixture did not cross request boundary")
 	}
@@ -254,6 +254,13 @@ func TestHTTPBusinessClosureUsesActualPipeSQLiteAndNetwork(t *testing.T) {
 	decodeResponse(t, raw, &list)
 	if len(list.Items) != 0 {
 		t.Fatal("A leaked into B")
+	}
+	status, raw = f.request(t, "POST", prefix+"/close", encode(t, protocol.CloseWorkspace{OperationId: commit.OperationId, OpenEpoch: *av.OpenEpoch}))
+	requireStatus(t, status, 409)
+	var keyConflict protocol.ErrorView
+	decodeResponse(t, raw, &keyConflict)
+	if keyConflict.Code != protocol.ErrorCodeOPERATIONKEYREUSE {
+		t.Fatal("HTTP save/close collision was not scoped key reuse", keyConflict)
 	}
 	status, raw = f.request(t, "POST", prefix+"/close", encode(t, protocol.CloseWorkspace{OperationId: "64000000-0000-4000-8000-000000000001", OpenEpoch: *av.OpenEpoch}))
 	if status != 200 && status != 202 {
@@ -290,6 +297,17 @@ func TestHTTPBusinessClosureUsesActualPipeSQLiteAndNetwork(t *testing.T) {
 	decodeResponse(t, raw, &duplicate)
 	if duplicate != receipt {
 		t.Fatal("old key replayed rather than returning original receipt")
+	}
+	// A valid new-epoch candidate cannot reuse the process-retained close key.
+	currentDigest := receipt.ContentDigest
+	status, raw = f.request(t, "POST", prefix+"/record-previews", encode(t, protocol.PreviewRecord{OpenEpoch: *reopened.OpenEpoch, Kind: "update-text", ResourceId: &id, BaseRevision: "2", BaseDigest: &currentDigest, Title: "still candidate", Body: "never formally applied"}))
+	requireStatus(t, status, 201)
+	decodeResponse(t, raw, &preview)
+	status, raw = f.request(t, "POST", prefix+"/record-commits", encode(t, protocol.CommitRecord{OperationId: "64000000-0000-4000-8000-000000000001", OpenEpoch: *reopened.OpenEpoch, CandidateId: preview.CandidateId, CandidateDigest: preview.CandidateDigest, PreviewVersion: preview.PreviewVersion}))
+	requireStatus(t, status, 409)
+	decodeResponse(t, raw, &keyConflict)
+	if keyConflict.Code != protocol.ErrorCodeOPERATIONKEYREUSE {
+		t.Fatal("HTTP close key acquired a save", keyConflict)
 	}
 	status, raw = f.request(t, "GET", prefix+"/operations/"+string(commit.OperationId), nil)
 	requireStatus(t, status, 200)

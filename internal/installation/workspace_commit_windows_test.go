@@ -340,6 +340,16 @@ func TestWorkspaceCommitNativeFlushUnknownRetainsOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A trusted prebody-style reservation is adopted by the existing business
+	// turn. Ending this request reference must not end uncertain native ownership.
+	owner, scope, err := opener.owner(ctx, wa)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := owner.ReserveOperation(ctx, scope, wa.Check, false, false)
+	if err != nil || f.store.workspaceCapacity.Usage() != 1 {
+		t.Fatal(err, f.store.workspaceCapacity.Usage())
+	}
 	stimulusPath := filepath.Join(f.root, "synthetic-readonly-flush")
 	if err = os.WriteFile(stimulusPath, []byte("synthetic native fault stimulus"), 0600); err != nil {
 		t.Fatal(err)
@@ -357,7 +367,15 @@ func TestWorkspaceCommitNativeFlushUnknownRetainsOwnership(t *testing.T) {
 	creationFlushFault.failed.Store(0)
 	restore := replaceCreationFlush(t)
 	in := commitPreviewInput(authA, ap)
-	result, saveErr := opener.CommitRecord(ctx, wa, in)
+	result, saveErr := opener.CommitRecord(reservation.Context(ctx), wa, in)
+	reservation.Release()
+	wantHeld := 0
+	if ordinal != 0 {
+		wantHeld = 1
+	}
+	if used := f.store.workspaceCapacity.Usage(); used != wantHeld {
+		t.Fatal("request reference released native ownership or double-charged", used, wantHeld)
+	}
 	calls, failed := creationFlushFault.calls.Load(), creationFlushFault.failed.Load()
 	restore()
 	if err = stimulus.Close(); err != nil {

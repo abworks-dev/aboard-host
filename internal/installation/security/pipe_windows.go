@@ -76,21 +76,51 @@ type DeliveryConfirmer interface {
 	ConfirmDelivery(string) error
 }
 
-func (p *ControlPipe) ServeOne(ctx context.Context, sessions Issuer, grant Grant, ttl time.Duration) (err error) {
+func (p *ControlPipe) ServeOne(ctx context.Context, sessions Issuer, grant Grant, ttl time.Duration) error {
+	return p.serveControl(ctx, sessions, grant, ttl, nil)
+}
+
+// ServeControl preserves the existing session handshake verbatim. A distinct
+// versioned read mode is available only after the same kernel peer verification.
+func (p *ControlPipe) ServeControl(ctx context.Context, sessions Issuer, grant Grant, ttl time.Duration, reader PreconditionReader) error {
+	if reader == nil {
+		return ErrUnauthorized
+	}
+	return p.serveControl(ctx, sessions, grant, ttl, reader)
+}
+func (p *ControlPipe) serveControl(ctx context.Context, sessions Issuer, grant Grant, ttl time.Duration, reader PreconditionReader) (err error) {
+	stage := "server-connect"
+	defer func() { err = pipeFault(stage, err) }()
+	// Own the instance state even when Connect reports an error: a prior client
+	// may have closed, or cancellation may lose a race to actual connection.
+	// pipeOperation cancels AND joins native IO before this reset can run.
+	defer func() {
+		resetErr := win.DisconnectNamedPipe(p.handle)
+		if resetErr == win.ERROR_PIPE_NOT_CONNECTED {
+			resetErr = nil // Idle/canceled accept has no connection to reset.
+		}
+		err = errors.Join(pipeFault(stage, err), pipeFault("server-reset", resetErr))
+	}()
 	if err = pipeOperation(ctx, p.handle, nil, func(ov *win.Overlapped) error { return win.ConnectNamedPipe(p.handle, ov) }); err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, win.DisconnectNamedPipe(p.handle)) }()
+	stage = "server-hello"
 	var hello [1]byte
 	if err = readExact(ctx, p.handle, hello[:]); err != nil {
 		return err
 	}
-	if hello[0] != 1 {
+	if hello[0] != 1 && (hello[0] != 5 || reader == nil) {
 		return ErrUnauthorized
 	}
+	stage = "server-peer"
 	if err = verifyPipeCaller(p.handle, p.sid); err != nil {
 		return err
 	}
+	if hello[0] == 5 {
+		stage = "server-precondition"
+		return p.servePrecondition(ctx, reader)
+	}
+	stage = "server-issue"
 	token, err := sessions.Issue(grant, ttl)
 	if err != nil {
 		return err
@@ -105,19 +135,23 @@ func (p *ControlPipe) ServeOne(ctx context.Context, sessions Issuer, grant Grant
 	defer clear(payload)
 	var header [2]byte
 	binary.LittleEndian.PutUint16(header[:], uint16(len(payload)))
+	stage = "server-header"
 	if err = writeExact(ctx, p.handle, header[:]); err != nil {
 		return err
 	}
+	stage = "server-token"
 	if err = writeExact(ctx, p.handle, payload); err != nil {
 		return err
 	}
 	// Explicit acknowledgement means read delivery, not just an OS pipe buffer.
+	stage = "server-first-ack"
 	if err = readExact(ctx, p.handle, hello[:]); err != nil {
 		return err
 	}
 	if hello[0] != 2 {
 		return ErrUnauthorized
 	}
+	stage = "server-activate"
 	if confirmer, ok := sessions.(DeliveryConfirmer); ok {
 		if err = confirmer.ConfirmDelivery(token); err != nil {
 			return err
@@ -127,9 +161,11 @@ func (p *ControlPipe) ServeOne(ctx context.Context, sessions Issuer, grant Grant
 	// ReceiveSession never returns a token before final server confirmation.
 	// Wait for 4 before DisconnectNamedPipe, which may discard unread bytes.
 	// All waits are canceled/drained; no installation mutex spans pipe IO.
+	stage = "server-confirmation"
 	if err = writeExact(ctx, p.handle, []byte{3}); err != nil {
 		return err
 	}
+	stage = "server-final-ack"
 	if err = readExact(ctx, p.handle, hello[:]); err != nil {
 		return err
 	}
@@ -147,7 +183,14 @@ func (p *ControlPipe) ServeOne(ctx context.Context, sessions Issuer, grant Grant
 func ReceiveSession(ctx context.Context, name string, expectedPID uint32) (string, error) {
 	return receiveSession(ctx, name, expectedPID, win.SECURITY_IMPERSONATION)
 }
-func receiveSession(ctx context.Context, name string, expectedPID uint32, qos uint32) (string, error) {
+func receiveSession(ctx context.Context, name string, expectedPID uint32, qos uint32) (token string, err error) {
+	stage := "client-input"
+	defer func() {
+		if stage == "client-open" && err == win.ERROR_PIPE_BUSY {
+			return
+		}
+		err = pipeFault(stage, err)
+	}()
 	path, err := localPipeName(name)
 	if err != nil {
 		return "", err
@@ -156,81 +199,101 @@ func receiveSession(ctx context.Context, name string, expectedPID uint32, qos ui
 		return "", ErrUnauthorized
 	}
 	p, _ := win.UTF16PtrFromString(path)
+	stage = "client-open"
 	h, err := win.CreateFile(p, win.GENERIC_READ|win.GENERIC_WRITE|win.READ_CONTROL, 0, nil, win.OPEN_EXISTING, win.FILE_FLAG_OVERLAPPED|win.SECURITY_SQOS_PRESENT|qos, 0)
 	if err != nil {
 		return "", err
 	}
 	defer win.CloseHandle(h)
+	stage = "client-sid"
 	sid, err := currentSID()
 	if err != nil {
 		return "", err
 	}
+	stage = "client-dacl"
 	if err = checkPrivateObject(h, sid, false); err != nil {
 		return "", err
 	}
+	stage = "client-server"
 	process, err := verifyPipeServer(h, expectedPID, sid)
 	if err != nil {
 		return "", err
 	}
 	defer win.CloseHandle(process)
+	stage = "client-hello"
 	if err = writeExact(ctx, h, []byte{1}); err != nil {
 		return "", err
 	}
+	stage = "client-header-read"
 	var header [2]byte
 	if err = readExact(ctx, h, header[:]); err != nil {
 		return "", err
 	}
+	stage = "client-header-shape"
 	size := binary.LittleEndian.Uint16(header[:])
 	if size != 43 {
 		return "", ErrUnauthorized
 	}
 	payload := make([]byte, size)
 	defer clear(payload)
+	stage = "client-token-read"
 	if err = readExact(ctx, h, payload); err != nil {
 		return "", err
 	}
+	stage = "client-first-ack"
 	if err = writeExact(ctx, h, []byte{2}); err != nil {
 		return "", err
 	}
+	stage = "client-confirmation-read"
 	var confirmed [1]byte
 	if err = readExact(ctx, h, confirmed[:]); err != nil {
 		return "", err
 	}
+	stage = "client-confirmation-shape"
 	if confirmed[0] != 3 {
 		return "", ErrUnauthorized
 	}
+	stage = "client-final-ack"
 	if err = writeExact(ctx, h, []byte{4}); err != nil {
 		return "", err
 	}
 	return string(payload), nil
 }
-func verifyPipeServer(h win.Handle, expectedPID uint32, sid *win.SID) (win.Handle, error) {
+func verifyPipeServer(h win.Handle, expectedPID uint32, sid *win.SID) (handle win.Handle, err error) {
+	stage := "client-server-pid-query"
+	defer func() { err = pipeFault(stage, err) }()
 	var pid uint32
 	if err := win.GetNamedPipeServerProcessId(h, &pid); err != nil {
 		return 0, err
 	}
+	stage = "client-server-pid-match"
 	if pid == 0 || pid != expectedPID {
 		return 0, ErrUnauthorized
 	}
+	stage = "client-server-open"
 	process, err := win.OpenProcess(win.PROCESS_QUERY_LIMITED_INFORMATION|win.SYNCHRONIZE, false, pid)
 	if err != nil {
 		return 0, err
 	}
 	fail := func(e error) (win.Handle, error) { win.CloseHandle(process); return 0, e }
 	// Refuse an exited process: a stale PID is not a trusted live server.
+	stage = "client-server-live"
 	status, err := win.WaitForSingleObject(process, 0)
 	if err != nil || status != uint32(win.WAIT_TIMEOUT) {
-		return fail(ErrUnauthorized)
+		return fail(errors.Join(ErrUnauthorized, err))
 	}
+	stage = "client-server-token"
 	var token win.Token
 	if err = win.OpenProcessToken(process, win.TOKEN_QUERY, &token); err != nil {
 		return fail(err)
 	}
 	defer token.Close()
+	stage = "client-server-user"
 	user, err := token.GetTokenUser()
 	if err != nil {
 		return fail(err)
 	}
+	stage = "client-server-sid-match"
 	if !user.User.Sid.Equals(sid) {
 		return fail(ErrUnauthorized)
 	}
@@ -314,6 +377,15 @@ func pipeOperation(ctx context.Context, h win.Handle, transferred *uint32, start
 	}
 	defer win.CloseHandle(event)
 	ov := win.Overlapped{HEvent: event}
+	// SyscallN keeps pointers alive only through the submitting call. Native
+	// overlapped IO outlives it: pin both its operation and count until the
+	// completion or the original CancelIoEx + GetOverlappedResult join below.
+	var nativePin runtime.Pinner
+	nativePin.Pin(&ov)
+	if transferred != nil {
+		nativePin.Pin(transferred)
+	}
+	defer nativePin.Unpin()
 	err = start(&ov)
 	if errors.Is(err, win.ERROR_PIPE_CONNECTED) {
 		return nil
@@ -359,6 +431,14 @@ func pipeOperation(ctx context.Context, h win.Handle, transferred *uint32, start
 	return err
 }
 func readExact(ctx context.Context, h win.Handle, b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	// Pin the backing allocation, not the slice header. A caller's small
+	// buffer may otherwise move with its Go stack while ReadFile is pending.
+	var nativePin runtime.Pinner
+	nativePin.Pin(&b[0])
+	defer nativePin.Unpin()
 	for len(b) > 0 {
 		var n uint32
 		err := pipeOperation(ctx, h, &n, func(ov *win.Overlapped) error { return win.ReadFile(h, b, &n, ov) })
@@ -373,6 +453,12 @@ func readExact(ctx context.Context, h win.Handle, b []byte) error {
 	return nil
 }
 func writeExact(ctx context.Context, h win.Handle, b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	var nativePin runtime.Pinner
+	nativePin.Pin(&b[0])
+	defer nativePin.Unpin()
 	for len(b) > 0 {
 		var n uint32
 		err := pipeOperation(ctx, h, &n, func(ov *win.Overlapped) error { return win.WriteFile(h, b, &n, ov) })

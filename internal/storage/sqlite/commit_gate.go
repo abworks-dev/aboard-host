@@ -355,7 +355,7 @@ func (g *CommitGate) CommitAccepted(ctx context.Context, a *Admission) (SaveResu
 			return g.rejectAccepted(ctx, tx, a, "WRITE_FAILED", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitAcceptedTransaction(g, tx); err != nil {
 		return g.unknown(err)
 	}
 	return SaveResult{Status: Confirmed, Receipt: receipt}, nil

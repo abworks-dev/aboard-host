@@ -97,9 +97,15 @@ func TestPreviewValidationAllocationAndFences(t *testing.T) {
 	if state, _ := l.State(scope); state != LifecycleUnknown {
 		t.Fatal(state)
 	}
+	if owner.queue.capacity.Usage() != 1 {
+		t.Fatal("unknown preview released original quota", owner.queue.capacity.Usage())
+	}
 	before = len(r.put)
 	if _, err = owner.PreviewRecord(ctx, scope, scope.InstallationID, check, in); !errors.Is(err, ErrLifecycle) || len(r.put) != before {
 		t.Fatal("unknown admitted", err)
+	}
+	if owner.queue.capacity.Usage() != 1 {
+		t.Fatal("fenced duplicate changed preview quota")
 	}
 	if err = owner.DrainOpen(ctx, scope, check); !errors.Is(err, ErrOpenUncertain) {
 		t.Fatal("unknown drained", err)
