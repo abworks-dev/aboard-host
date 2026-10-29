@@ -5,6 +5,12 @@
 
 权威输入：[规格](<spec.md>)、[宪章1.0.0](<../../.specify/memory/constitution.md>)、[计划](<plan.md>)、[研究](<research.md>)、[数据模型](<data-model.md>)、[公共协议](<contracts/api.md>)、[长期范围与唯一路线](<../../docs/scope.md#31-长期数据策略与单一实现范围designed未实现>)。沿用原架构/长期数据策略，不重新选型或分配feature编号。
 
+## 阅读任务与证据
+
+先读[当前工程状态](<#current-state>)；原checkbox是主体，不因本次文档整理改勾选/编号。任务行已给Owner、Depends on、US/FR/SC及V入口：Phase A技术门 → B安装/目录 → C正式保存/生命周期 → D独立验收 → T032汇总。Owner `agent`是该工程责任角色，不等于本轮文档owner有业务执行许可。
+
+001固定profile的工程验证与用户最终接受分开；不接收Workbench包或代签003联合。需要确认原证据时沿[plan最终汇总](<plan.md#101-001最终工程验收汇总t032当前>)和下方Verification读取，历史failed/skipped/硬件边界仍保留；本次只做静态文档检查。
+
 ## 输入版本与评审边界
 
 仓库根 `E:\Repository\Github\aboard-host`；Git `master` 无提交、无remote，不能以commit固定输入。以下SHA-256固定任务生成时的历史输入截面，不冒充治理整理后的当前哈希；后续改变受影响设计时须重新检查相关任务/证据，不借用旧结果。
@@ -81,6 +87,8 @@ G门允许的未来工作只是受限合成验证与必要适配器，不能把s
 - [x] T030 [US5] 执行V014：断连/取消等待者、close中保存悬置、Context超时但物理IO未结束、迟到回调/旧epoch、新进程未知调查及close历史不可查；记录锁/连接/队列/逻辑/物理/持久状态时间线。Owner: agent. Depends on: T023, T020, T021. 验收：V014；FR-004/015/019–024、SC-003/005/007/009；不得提前释放锁、误称safeToMove或将Run逻辑套在不存在的Run上。
 - [x] T031 [US1] 执行V015的结构/字节/权限/范围回归与目标构建，检查当前公开绑定只有一个结构源、日志DTO不泄密、未引入对象/Run/备份/旧库升级/消息总线等延期设施；编译/race/Mock单列覆盖范围与环境不足。Owner: agent. Depends on: T024, T025, T026, T027, T028, T029, T030, T003. 验收：V015；FR-010/016–017/024–028、SC-001–009相关回归；静态或race通过不替代V008–V014。
 - [x] T032 [US3] 按当前源/契约/夹具指纹汇总V001–V015及全部US/FR/SC实际证据到[plan](<plan.md>)现有验收记录，保留历史失败和未验证硬件边界，明确partial/implemented与用户验收分开；任何必需闭环/负例未验证就不宣称001完成。Owner: agent. Depends on: T009, T024, T025, T026, T027, T028, T029, T030, T031. 验收：V001–V015各责任任务证据齐全；正式保存/完整重启重开始终由T027承担；不自动退役旧Host、迁移真实数据、提交/push或发布。
+
+<a id="current-state"></a>
 
 **当前工程验收状态（2026-10-20T15:08:26+08）**：T001–T032固定支持profile全部完成，V001–V015（V002a/b）及六US/28FR/九SC责任证据已归并到[plan最终汇总](<plan.md#101-001最终工程验收汇总t032当前>)。T031全仓测试/normal与tag vet/目标四image及独立结构字节回归通过；T032另以当前image真实等待900.1647946秒（无TTL/时钟/SQL改动），原receipt保持/过期拒绝/fresh正控/完整重启通过；当前G4三轮与真实8.3、环境/modules verify亦0，261输入无漂移，136份选定JSON/本地链接和全部ID映射复核。race在固定CGO0实际exit2、未执行，硬断电/全局trace/SLA/跨profile仍未承诺；历史native233/Unauthorized/rename failed保留未定位，不以有限green声称永久可靠。这里签收工程责任门，不代替用户最终接受，不包含提交/push/发布、旧Host退役或真实数据迁移。
 

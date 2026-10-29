@@ -1,18 +1,26 @@
 # Feature Specification: 独立 Go Host 与目录工作区基础闭环
 
-**Feature Branch**: 未创建功能分支；本地 `master` 无提交，feature 与分支名独立。
+**Feature Branch（创建时记录）**: 未创建功能分支；当时本地 `master` 无提交，feature与分支名独立；不据此推断当前Git状态。
 
 **Feature Directory**: `specs/001-host-workspace-foundation`
 
 **Created**: 2026-10-17
 
-**Status**: 需求基线不变；当前功能授权及历史批准统一见[授权记录](<authorization.md>)。规格状态不代表运行验收通过。
+**Status**: approved需求基线；固定Windows/NTFS profile的基础工程已按原任务完成，非用户最终接受或全产品完成。当前实现/验证范围只见[tasks当前工程状态](<tasks.md#current-state>)；授权及历史批准统一见[授权记录](<authorization.md>)。本次文档维护不重验既有工程。
 
 **Input**: 用户要求独立 Host、可信本地连接、稳定目录身份、真实工作区数据库、最小正式资源保存/读取、关闭和完整重启重开、排他写者及两区隔离；无效目录不得补种或执行。
 
 治理：[宪章](<../../.specify/memory/constitution.md>)；架构与阶段：[总体范围](<../../docs/scope.md>)。
 规格只固定行为，不固定驱动、锁算法、认证介质、路由、表结构或包布局。
 Go、Windows 本地文件系统、真实 SQLite 是用户明确约束，不是新推断的技术取舍。
+
+## 问题、用户与结果
+
+本机用户需要一个不靠旧Host或前端也能保存工作的后端，而不是只能返回health的服务。001交付最小可信闭环：认证 → 创建/登记合成目录 → 显式打开 → 文本预览/确认/读取 → 关闭与完整停机 → 新进程重开；同时证明两区隔离与第二写者拒绝。
+
+**范围**是非执行文本、真实SQLite、可信本地连接和目录生命周期；**非目标**是对象附件、通用文件Apply、AI/插件/Run、迁移/备份或跨平台产品。工作区是长期身份与正式内容，不是路径别名；候选是待确认输入，receipt是Host确认结果，unknown是证据不足而不是安全重试。
+
+阅读：下方六个P1故事解释用户结果，全部既有验收约束继续有效；[功能需求](<#functional-requirements>)与成功标准规定边界，[计划](<plan.md#design-guide>)解释取舍，[任务](<tasks.md#current-state>)连接Owner/依赖与原证据。
 
 ## Clarifications
 
