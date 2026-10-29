@@ -1,0 +1,52 @@
+name: Documentation static checks
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'Required full 40-hex base commit SHA (must exist and differ from checked-out HEAD)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Version tags are explicit; no unreviewed action source is downloaded locally.
+      - name: Check out complete history without persisted credentials
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Create local diagnostic directory
+        shell: bash
+        run: mkdir -p .data/logs/docs-ci
+      - name: Full maintenance documentation audit
+        id: docs
+        shell: bash
+        run: |
+          set -o pipefail
+          python -B tools/check_docs_ci.py 2>&1 | tee .data/logs/docs-ci/docs-check.log
+      - name: Existing checker synthetic tests
+        if: ${{ !cancelled() && steps.docs.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          python -B tools/test_check_docs.py 2>&1 | tee .data/logs/docs-ci/checker-tests.log
+      - name: CI baseline helper synthetic tests
+        if: ${{ !cancelled() && steps.docs.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          python -B tools/test_check_docs_ci.py 2>&1 | tee .data/logs/docs-ci/ci-helper-tests.log
+      # Logs remain job output/workspace-local; do not publish event payloads or tokens.
