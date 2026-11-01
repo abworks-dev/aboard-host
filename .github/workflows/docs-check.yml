@@ -9,6 +9,19 @@ on:
         description: 'Required full 40-hex base commit SHA (must exist and differ from checked-out HEAD)'
         required: true
         type: string
+      mode:
+        description: 'Explicit full-scope policy; never inferred or changed after failure'
+        required: true
+        type: choice
+        default: maintenance
+        options:
+          - maintenance
+          - development
+      reviewed_task_updates:
+        description: 'Caller declares task differences reviewed against existing authority/evidence; NOT approval or acceptance'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,7 +44,7 @@ jobs:
       - name: Create local diagnostic directory
         shell: bash
         run: mkdir -p .data/logs/docs-ci
-      - name: Full maintenance documentation audit
+      - name: Full-scope documentation audit with explicit event policy
         id: docs
         shell: bash
         run: |

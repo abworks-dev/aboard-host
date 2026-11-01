@@ -248,7 +248,11 @@ class Snapshot:
         return None
 
 
-def audit(root, base='HEAD', files=None, mode='maintenance'):
+def audit(root, base='HEAD', files=None, mode='maintenance', reviewed_task_updates=False):
+    if mode not in ('maintenance', 'development'):
+        raise ValueError('invalid mode: ' + str(mode))
+    if reviewed_task_updates and mode != 'development':
+        raise ValueError('--reviewed-task-updates requires --mode development; maintenance protection is unchanged')
     root = root.resolve()
     # --end-of-options prevents option injection; a bad explicit baseline is fatal, never fallback.
     commit = git(root, 'rev-parse', '--verify', '--end-of-options', base + '^{commit}').stdout.decode().strip()
@@ -290,9 +294,21 @@ def audit(root, base='HEAD', files=None, mode='maintenance'):
                     emit('ERROR' if count > max(1, previous[key]) else 'WARN', path, kind, key + ' count=' + str(count))
         for key in sorted(old.ids.keys() - new.ids.keys()):
             emit('ERROR', path, 'removed-id', key)
+        removed = old.checkboxes - new.checkboxes
+        added = new.checkboxes - old.checkboxes
         if mode == 'maintenance':
-            for line, count in (old.checkboxes - new.checkboxes).items():
+            for line, count in removed.items():
                 emit('ERROR', path, 'changed-checkbox-line', line + ' (removed/changed count=' + str(count) + ')')
+        elif removed or added:
+            # A caller declaration, NOT inferred authorization or semantic validation.
+            # Anonymous/duplicate rows cannot be reliably paired: retain multiset counts.
+            if not reviewed_task_updates:
+                emit('ERROR', path, 'task-update-review-required',
+                     'development task differences require --reviewed-task-updates after existing authorization and semantic review')
+            for side, changes in [('removed', removed), ('added', added)]:
+                for line, count in sorted(changes.items()):
+                    emit('REVIEW', path, 'task-line-' + side,
+                         line + ' (count=' + str(count) + '; caller declaration is not authorization/acceptance proof)')
         for line, detail in new.unverified:
             emit('UNVERIFIED', path, 'markdown-subset', str(line) + ': ' + detail)
         old_issues = Counter(before.link_issue(path, dest) for _, dest in old.links)
@@ -315,14 +331,17 @@ def main(argv=None):
     parser.add_argument('--base', default='HEAD', help='explicit Git commit/ref; invalid is fatal (default HEAD)')
     parser.add_argument('--files', nargs='+', help='restrict source documents; repository-relative, nonempty; NOT a full audit')
     parser.add_argument('--mode', choices=['maintenance', 'development'], default='maintenance',
-                        help='development permits task checkbox-line changes only; never proves acceptance')
+                        help='development checks structure, not task commitments/authorization/acceptance; task differences require a caller declaration')
+    parser.add_argument('--reviewed-task-updates', action='store_true',
+                        help='development only: declare all task differences already authorized and semantically reviewed; not approval or proof')
     args = parser.parse_args(argv)
     try:
-        commit, scope, findings = audit(ROOT, args.base, args.files, args.mode)
+        commit, scope, findings = audit(ROOT, args.base, args.files, args.mode, args.reviewed_task_updates)
     except (ValueError, OSError, UnicodeError) as exc:
         print('FAILED: ' + str(exc))
         return 2
     print('ROOT=' + str(ROOT) + '\nBASE=' + commit + '\nMODE=' + args.mode)
+    print('TASK_UPDATE_DECLARATION=' + ('caller-declared; NOT verified authorization/acceptance' if args.reviewed_task_updates else 'none'))
     print('SCOPE=' + ('LIMITED (--files), NOT whole repository' if args.files else 'maintained Markdown only; NOT all repository files'))
     for path in scope:
         print('FILE ' + path)
@@ -331,7 +350,9 @@ def main(argv=None):
     counts = Counter(f[0] for f in findings)
     print('RESULT=' + ('FAILED' if counts['ERROR'] else 'PASSED') + ' documents=' + str(len(scope)) +
           ' errors=' + str(counts['ERROR']) + ' warnings=' + str(counts['WARN']) +
-          ' unverified=' + str(counts['UNVERIFIED']))
+          ' unverified=' + str(counts['UNVERIFIED']) + ' task_difference_rows=' + str(counts['REVIEW']))
+    if args.mode == 'development':
+        print('DEVELOPMENT STRUCTURE ONLY: task commitments are not automatically protected; no maintenance pass or semantic/authorization/acceptance verification is claimed.')
     print('Static subset only; no repair/network/authorization/business acceptance. Semantic review remains required.')
     return 1 if counts['ERROR'] else 0
 

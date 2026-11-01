@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only CI entry: immutable event baseline, full maintenance docs audit.
+"""Read-only CI entry: immutable baseline and explicit full-scope docs mode.
 
 Stdlib + existing Git/Python only. No fetch, repair, fallback, or authorization
 inference. PR checks the checked-out (normally merge) HEAD against base.sha;
@@ -38,6 +38,30 @@ def select_base(event_name, payload):
     return value.lower()
 
 
+def select_mode(event_name, payload):
+    if event_name in {'pull_request', 'push'}:
+        # Automatic events cannot carry a manual review declaration.
+        return 'maintenance', False
+    if event_name != 'workflow_dispatch' or not isinstance(payload, dict):
+        raise ValueError('mode selection requires a supported event object')
+    inputs = payload.get('inputs', {})
+    if not isinstance(inputs, dict):
+        raise ValueError('dispatch inputs must be an object')
+    mode = inputs.get('mode', 'maintenance')
+    if mode not in ('maintenance', 'development'):
+        raise ValueError('mode must be maintenance or development')
+    declared = inputs.get('reviewed_task_updates', False)
+    if type(declared) is bool:
+        reviewed = declared
+    elif isinstance(declared, str) and declared in ('true', 'false'):
+        reviewed = declared == 'true'
+    else:
+        raise ValueError('reviewed_task_updates must be an explicit boolean')
+    if mode == 'maintenance' and reviewed:
+        raise ValueError('reviewed_task_updates is valid only in development mode')
+    return mode, reviewed
+
+
 def commit_sha(root, value):
     result = subprocess.run(['git', '-C', str(root), 'rev-parse', '--verify',
                              '--end-of-options', value + '^{commit}'],
@@ -53,7 +77,7 @@ def commit_sha(root, value):
 def run(root, event_name, event_path):
     # JSON-quote untrusted event names/paths; never interpret them as shell code.
     print('EVENT=' + json.dumps(event_name), flush=True)
-    print('SCOPE=all maintained Markdown (including unchanged sources); MODE=maintenance', flush=True)
+    print('SCOPE=all maintained Markdown (including unchanged sources)', flush=True)
     try:
         head = commit_sha(root, 'HEAD')
         print('HEAD=' + head, flush=True)
@@ -61,12 +85,17 @@ def run(root, event_name, event_path):
             raise ValueError('event JSON path is required')
         payload = json.loads(Path(event_path).read_text(encoding='utf-8'))
         base = select_base(event_name, payload)
+        mode, reviewed = select_mode(event_name, payload)
+        print('MODE=' + mode + '; REVIEWED_TASK_UPDATES=' + str(reviewed).lower() +
+              ' (caller declaration only, not verified authorization or acceptance)', flush=True)
         print('BASE=' + base, flush=True)
         base = commit_sha(root, base)
         if base == head:
             raise ValueError('self-baseline rejected; base must differ from actual checked-out HEAD')
         command = [sys.executable, '-B', str(root / 'tools/check_docs.py'),
-                   '--base', base, '--mode', 'maintenance']
+                   '--base', base, '--mode', mode]
+        if reviewed:
+            command.append('--reviewed-task-updates')
         print('COMMAND=' + json.dumps(command), flush=True)
         result = subprocess.run(command, cwd=root)
         code = result.returncode if result.returncode >= 0 else 128 - result.returncode

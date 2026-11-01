@@ -20,5 +20,5 @@
 - 顺序为事实校准 → 结构导航 → 需求/设计/任务/场景追踪。保留原编号、任务复选框整行、承诺及旧标题/显式anchor兼容；不重建、不重编号、不删搬带日期历史，不改旧绝对证据。当前概述与历史分层，历史“未验”不覆盖后来真实结果，后来绿也不抹旧失败。
 - 新需求须有来源和批准，并映射设计、原任务与验收场景；缺口明确标为unmapped，不编造覆盖。implemented/partial/unverified与真实联合、发行、用户验收分轴陈述；语义和授权由人/只读一致性复核，不能按关键词或静态绿灯推断。
 - 跨仓只引用契约/状态/证据的原owner，不拷贝第二owner，不续用冻结交接签名。每次文档delta仍须按实际交接核输入/漂移；本规则和检查工具不能重签旧packet或扩大权限。
-- 文档维护完成前必须执行本项目[静态检查](<tools/check_docs.py>)及[合成工具测试](<tools/test_check_docs.py>)，用法/解析子集见[README](<README.md#文档维护静态检查>)。默认维护模式保护原任务整行；真实业务开发可显式用development模式并记录原因，但不因此证明任务/验收完成。限定文件检查必须声明非全仓及未检查的反向引用，不为绿灯偷偷换base、筛掉错误或加allowlist；失败保留、按原owner/范围处理。
-- 已新增[文档静态检查CI配置](<.github/workflows/docs-check.yml>)，按[事件不可变基线规则](<README.md#文档静态检查ci>)执行全域maintenance及专用合成工具测试；本地配置未提交推送不等于远端Actions已运行，也未配置分支保护/必需检查、push hook或其他服务端强制门。静态检查、规格质量checklist、只读一致性analysis与业务验收互不替代；纯文档不触发无依据的业务广回归，也不豁免实际受影响的既有技术门。
+- 文档维护完成前必跑本项目[全域静态检查](<tools/check_docs.py>)及[合成测试](<tools/test_check_docs.py>)；调用和解析边界见[README原定义](<README.md#文档维护静态检查>)。默认maintenance保护任务整行；混合业务先保留同base全域维护失败，依原授权/证据核全量任务差异及承诺未减后，才显式development及`--reviewed-task-updates`并展示完整差异，不自动fallback，也不替代自动maintenance CI。声明不是新授权/验收或自动语义证明，不新增人工审批。局部检查须声明非全仓及反向引用未核验，不换base、筛错或加allowlist。
+- [文档CI](<.github/workflows/docs-check.yml>)按[事件不可变基线规则](<README.md#文档静态检查ci>)执行全域检查及专用合成测试：自动PR/push固定maintenance且不采信夹带声明；仅手动dispatch可显式选择development及任务差异核对声明，默认仍maintenance，不以失败自动降级。手动development结果不能替代自动maintenance；本地配置不等于远端已执行或服务端强制门。静态检查、规格质量checklist、只读一致性analysis与业务验收互不替代；纯文档不触发无依据的业务广回归，也不豁免实际受影响的既有技术门。

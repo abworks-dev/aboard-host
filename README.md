@@ -105,13 +105,15 @@ python -B tools/check_docs.py
 python -B tools/test_check_docs.py
 # 跨提交维护时应使用实际开始前的提交；无效base硬失败，不降级。
 python -B tools/check_docs.py --base <baseline-commit>
-# 仅真实开发允许任务整行变化；这不是任务完成/授权检查。
-python -B tools/check_docs.py --mode development
+# 已有业务授权且核对全部任务差异/证据后，记录此次混合工作树的检查原因；不是维护/CI通过。
+python -B tools/check_docs.py --base <same-baseline-commit> --mode development --reviewed-task-updates
 # 局部诊断：只核这些源文档，不声称完成全仓或其他源反向引用检查。
 python -B tools/check_docs.py --files README.md AGENTS.md
 ```
 
 默认检查Git tracked及未忽略untracked中的根README/AGENTS、docs/specs树Markdown，另显式包含宪章；不递归本机日志、`.git`、缓存、依赖、交付包、archive/experiments等冻结输出。历史保留的受维护plan/research仍是输入；不扫描或验证其绝对机器路径证据。输出列出实际scope、base/mode和文件；exit 0仅表示所选静态检查无新增硬失败，exit 1表示回归，exit 2表示参数/输入/Git失败。`WARN`是同一base中已坏的历史问题（不静默忽略）；`UNVERIFIED`是越界/不支持目标，不可解读为链接有效。已补充下述CI配置；本地维护完成前仍须代理/人工必跑，配置存在不等于远端已执行或已有推送强制门。
+
+**任务更新边界**：纯维护不得改变原任务整行；既有授权的实施/验证进度回填即使只改Markdown，也按业务进度核原授权、任务承诺和证据，不恢复取消的门或回退真实状态求绿。混合工作树先保留同base、全域maintenance的真实失败；明确上述原因后才独立运行development，不自动fallback。有任何任务整行差异（含新增）但无`--reviewed-task-updates`时exit 1；有声明则逐条输出`REVIEW task-line-removed/added`与完整原行/计数（匿名/重复行不猜配对）。无差异无需声明；maintenance与声明组合exit 2，不能解除保护。声明仅记录调用者已依既有授权完成语义核对，不产生授权、不证明人工确已复核或验收，不增加逐任务人工审批。development不自动保护任务正文承诺；裸T编号、anchor、断链等原结构硬错仍失败，匿名任务行等不能由稳定编号保护的差异只作展示，不声称被语义拦截；复合切片沿用既有编号解析子集，仍可能触发原结构检查。`task_difference_rows`是差异记录数，不是产品进展；exit 0仅为development结构子集无硬错，不能称maintenance或自动PR/push CI通过；手动dispatch按下文显式政策单独报告。
 
 受支持子集：普通inline/reference链接、图片引用、空格/中文/URL转义路径、ATX标题和同文档/跨文档fragment、显式HTML id/name；忽略围栏/缩进/inline代码及HTML注释。检查相对目标存在、Markdown fragment、新重复标题/anchor、原定义US/FR/SC/T/V/G编号和维护模式下原复选框整行；默认全域还能发现未改源文档指向被删目标的回归。只把spec/复选框tasks/明确验证标题或场景/门定义表当定义，不把正文引用或导航表当重复定义。
 
@@ -129,8 +131,8 @@ python -B tools/check_docs.py --files README.md AGENTS.md
 | `push` | `before` | checkout后的实际HEAD；不以当前HEAD或HEAD父提交回退 |
 | `workflow_dispatch` | 必填 `inputs.base_sha`，完整40位commit SHA | 所选ref checkout后的实际HEAD |
 
-缺失、全零、无效、对象不可用、非commit或等于实际HEAD的base均exit 2；helper不fetch、不修复、不回退。**首次新分支push的零before会失败**，应采用PR或手动触发并提供明确有效且非自身的基线；强推后before对象若未在checkout中取得也保留失败，不悄悄改为别的base。日志记录event、实际HEAD、base、全域scope、maintenance模式、命令与结果；本地重现需事件JSON和对应Git历史，不能以默认HEAD自比较冒充CI。
+缺失、全零、无效、对象不可用、非commit或等于实际HEAD的base均exit 2；helper不fetch、不修复、不回退。**首次新分支push的零before会失败**，应采用PR或手动触发并提供明确有效且非自身的基线；强推后before对象若未在checkout中取得也保留失败，不悄悄改为别的base。日志记录event、实际HEAD、base、全域scope、实际mode/调用者声明、命令与结果；本地重现需事件JSON和对应Git历史，不能以默认HEAD自比较冒充CI。
 
-helper仅调用 `python -B tools/check_docs.py --base <event-commit> --mode maintenance`，不传 `--files`、不开发模式、不加allowlist。随后独立steps运行[原检查器合成测试](<tools/test_check_docs.py>)和[CI helper合成测试](<tools/test_check_docs_ci.py>)；静态失败不短路这两项，所有步骤保留真实退出码，无 `continue-on-error`。只用已有Git/Python标准库，无pnpm/Go依赖安装、业务build或Host/native/browser测试。控制台保留结果，`pipefail`与`tee`将本次CI输出副本留在job工作区ignored `.data/logs/docs-ci/`，不上传event/token；fixture在各专用测试的ignored诊断目录。取消或基础设施失败可能阻断执行，不算通过。
+helper全域调用 `python -B tools/check_docs.py --base <event-commit> --mode <explicit-mode>`，不传`--files`或allowlist。自动PR/push固定maintenance，忽略夹带的mode/声明；手动dispatch默认maintenance，调用者可显式选择development，`reviewed_task_updates`只接受布尔或精确true/false字符串。maintenance+声明为exit 2；有任务差异的development必须声明，否则exit 1；无差异不强迫声明。声明只记录已有授权/证据核对，不产生授权或验收证明，不能失败后自动降级。混合业务任务更新仍可能使自动maintenance失败，手动development不能替代该结果。此为[本轮已授权的最小政策选择](<specs/001-host-workspace-foundation/authorization.md>)，不追溯改变历史严格维护记录。随后独立steps运行[原检查器合成测试](<tools/test_check_docs.py>)和[CI helper合成测试](<tools/test_check_docs_ci.py>)；静态失败不短路这两项，所有步骤保留真实退出码，无`continue-on-error`。只用已有Git/Python标准库，无pnpm/Go依赖安装、业务build或Host/native/browser测试。控制台保留结果，`pipefail`与`tee`将本次CI输出副本留在job工作区ignored`.data/logs/docs-ci/`，不上传event/token；fixture在各专用测试的ignored诊断目录。取消或基础设施失败可能阻断执行，不算通过。本地政策/测试不证明远端Actions或服务端强制门，实际配置仍须独立发布与验证。
 
-本轮本机CI helper专用合成测试为23/23通过（Windows已有Python 3.12.14）；只证明本机合成基线与退出码路径，不证明Ubuntu或远端Actions。本次本地提交授权见原记录，实际提交状态以Git为准；未推送或改远端设置，也未启用分支保护或必需检查、push hook；当前真实维护检查仍如实保留既有003/T018任务整行相对HEAD的失败，不为接CI修改业务任务或换base。授权只在[原记录](<specs/001-host-workspace-foundation/authorization.md>)，CI绿也不能取代规格质量、只读一致性复核、联合/发行或用户验收。
+**历史记录（文档静态检查CI接入阶段）**：当时本机CI helper专用合成测试为23/23通过（Windows已有Python 3.12.14）；只证明该次本机合成基线与退出码路径，不证明Ubuntu或远端Actions。该阶段本地提交授权见原记录，不是本轮提交许可，实际提交状态以Git为准；未推送或改远端设置，也未启用分支保护或必需检查、push hook；当时的真实维护检查如实保留了既有003/T018任务整行相对HEAD的失败，不为接CI修改业务任务或换base。授权只在[原记录](<specs/001-host-workspace-foundation/authorization.md>)，CI绿也不能取代规格质量、只读一致性复核、联合/发行或用户验收。
