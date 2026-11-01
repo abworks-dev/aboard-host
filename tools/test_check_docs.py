@@ -4,7 +4,9 @@
 All fixture writes stay in this repository's ignored .data/logs subtree.
 Retain fixtures for diagnosis; run with python -B to prevent bytecode artifacts.
 """
+from contextlib import redirect_stdout
 import hashlib
+import io
 import os
 from pathlib import Path
 import shutil
@@ -159,7 +161,8 @@ class GuardTests(unittest.TestCase):
         self.commit()
         self.put('specs/a/tasks.md', '- [x] T001 [US1] body `changed.go`\n')
         self.assert_error('changed-checkbox-line')
-        self.assertEqual(self.errors(mode='development'), [])
+        self.assert_error('task-update-review-required', mode='development')
+        self.assertEqual(self.errors(mode='development', reviewed_task_updates=True), [])
 
     def test_checkbox_removal_development_does_not_remove_id_protection(self):
         self.put('specs/a/tasks.md', '- [ ] T001 body\n')
@@ -281,6 +284,95 @@ class GuardTests(unittest.TestCase):
         after = {str(p.relative_to(self.root)): hashlib.sha256(p.read_bytes()).hexdigest()
                  for p in self.root.rglob('*') if p.is_file()}
         self.assertEqual(before, after)
+
+
+    def test_task_progress_shapes_require_declaration_and_keep_full_differences(self):
+        shapes = [
+            ('- [ ] T029 original obligation', '- [x] T029 original obligation'),
+            ('- [ ] T018/H02 planned local slice', '- [x] T018/H02 scoped result; joint remains unverified'),
+            ('  - [ ] **H02** remaining product doors', '  - [x] **H02** scoped doors closed; broader doors remain'),
+            ('- [x] handoff: 90 minute window pending ACK', '- [x] handoff: user cancelled window; input checks retained'),
+        ]
+        for old, new in shapes:
+            with self.subTest(old=old):
+                self.put('specs/a/tasks.md', old + '\n')
+                self.commit()
+                self.put('specs/a/tasks.md', new + '\n')
+                base = self.git('rev-parse', 'HEAD').decode().strip()
+                self.assert_error('changed-checkbox-line', base=base)
+                self.assert_error('task-update-review-required', base=base, mode='development')
+                commit, scope, findings = guard.audit(self.root, base=base, mode='development', reviewed_task_updates=True)
+                self.assertEqual(commit, base)
+                self.assertEqual(scope, ['README.md', 'specs/a/tasks.md'])
+                self.assertFalse([f for f in findings if f[0] == 'ERROR'])
+                removed = [f for f in findings if f[2] == 'task-line-removed']
+                added = [f for f in findings if f[2] == 'task-line-added']
+                self.assertEqual(len(removed), 1)
+                self.assertEqual(len(added), 1)
+                self.assertEqual(removed[0][3], old + ' (count=1; caller declaration is not authorization/acceptance proof)')
+                self.assertEqual(added[0][3], new + ' (count=1; caller declaration is not authorization/acceptance proof)')
+                self.assertTrue(all(f[0] == 'REVIEW' for f in removed + added))
+
+    def test_development_unchanged_tasks_need_no_declaration(self):
+        self.put('specs/a/tasks.md', '- [ ] T001 stable\n')
+        self.commit()
+        self.assertEqual(self.findings(mode='development'), [])
+
+    def test_development_added_anonymous_task_also_needs_declaration(self):
+        self.put('specs/a/tasks.md', '- [ ] anonymous new obligation\n')
+        self.assert_error('task-update-review-required', mode='development')
+        findings = self.findings(mode='development', reviewed_task_updates=True)
+        self.assertEqual([f[2] for f in findings if f[0] == 'REVIEW'], ['task-line-added'])
+        self.assertFalse([f for f in findings if f[0] == 'ERROR'])
+
+    def test_development_duplicate_and_anonymous_deletions_are_not_paired(self):
+        old = '  - [ ] **H02** stable local scope'
+        new = '  - [x] **H02** reviewed local result'
+        self.put('specs/a/tasks.md', (old + '\n') * 3)
+        self.commit()
+        self.put('specs/a/tasks.md', old + '\n' + new + '\n')
+        findings = self.findings(mode='development', reviewed_task_updates=True)
+        self.assertFalse([f for f in findings if f[0] == 'ERROR'])
+        review = [f for f in findings if f[0] == 'REVIEW']
+        self.assertEqual(len(review), 2)
+        self.assertTrue(any(f[2] == 'task-line-removed' and f[3].startswith(old + ' (count=2;') for f in review))
+        self.assertTrue(any(f[2] == 'task-line-added' and f[3].startswith(new + ' (count=1;') for f in review))
+
+    def test_declared_development_preserves_id_anchor_and_link_errors(self):
+        self.put('specs/a/tasks.md', '# Stable\n- [ ] T001 obligation\n')
+        self.commit()
+        self.put('specs/a/tasks.md', '# Changed\n- [x] anonymous [bad](missing.md)\n')
+        kinds = {f[2] for f in self.errors(mode='development', reviewed_task_updates=True)}
+        self.assertTrue({'removed-id', 'removed-anchor', 'missing-link'}.issubset(kinds))
+
+    def test_api_invalid_mode_and_maintenance_declaration_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, 'invalid mode'):
+            self.findings(mode='progress')
+        with self.assertRaisesRegex(ValueError, 'requires --mode development'):
+            self.findings(reviewed_task_updates=True)
+
+    def test_cli_task_declaration_exit_codes_and_semantic_boundary(self):
+        self.put('specs/a/tasks.md', '- [ ] T029 same obligation\n')
+        self.commit()
+        self.put('specs/a/tasks.md', '- [x] T029 same obligation\n')
+        for argv, expected in [([], 1), (['--mode', 'development'], 1),
+                               (['--mode', 'development', '--reviewed-task-updates'], 0),
+                               (['--reviewed-task-updates'], 2)]:
+            with self.subTest(argv=argv):
+                output = io.StringIO()
+                with patch.object(guard, 'ROOT', self.root), redirect_stdout(output):
+                    code = guard.main(argv)
+                self.assertEqual(code, expected)
+                text = output.getvalue()
+                if '--mode' in argv:
+                    self.assertIn('task-line-removed', text)
+                    self.assertIn('task-line-added', text)
+                    self.assertIn('task_difference_rows=2', text)
+                    self.assertIn('no maintenance pass or semantic/authorization/acceptance verification is claimed', text)
+                    self.assertIn('not authorization/acceptance proof', text)
+                if expected == 0:
+                    self.assertIn('TASK_UPDATE_DECLARATION=caller-declared; NOT verified', text)
+                    self.assertIn('RESULT=PASSED', text)
 
 
 if __name__ == '__main__':

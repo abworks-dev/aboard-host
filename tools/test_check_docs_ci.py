@@ -70,6 +70,29 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 ci.select_base(name, {'before': 'a' * 40})
 
+    def test_mode_defaults_and_automatic_events_ignore_spoofed_inputs(self):
+        self.assertEqual(ci.select_mode('workflow_dispatch', {}), ('maintenance', False))
+        for event in ('push', 'pull_request'):
+            for inputs in ({'mode': 'development', 'reviewed_task_updates': 'true'},
+                           {'mode': 'invalid', 'reviewed_task_updates': []}):
+                self.assertEqual(ci.select_mode(event, {'inputs': inputs}), ('maintenance', False))
+        for value in (True, 'true'):
+            self.assertEqual(ci.select_mode('workflow_dispatch', {'inputs': {
+                'mode': 'development', 'reviewed_task_updates': value}}), ('development', True))
+        for value in (False, 'false'):
+            self.assertEqual(ci.select_mode('workflow_dispatch', {'inputs': {
+                'mode': 'development', 'reviewed_task_updates': value}}), ('development', False))
+
+    def test_invalid_mode_declarations_are_never_truthiness_coerced(self):
+        for inputs in ([], {'mode': 'auto'}, {'mode': []},
+                       {'reviewed_task_updates': True},
+                       *({'mode': 'development', 'reviewed_task_updates': value}
+                         for value in (None, 0, 1, [], {}, 'yes', 'TRUE', ''))):
+            with self.subTest(inputs=inputs), self.assertRaises(ValueError):
+                ci.select_mode('workflow_dispatch', {'inputs': inputs})
+        with self.assertRaises(ValueError):
+            ci.select_mode('workflow_run', {})
+
     def test_tag_resolution_not_an_exact_commit_is_rejected(self):
         completed = subprocess.CompletedProcess([], 0, stdout=('b' * 40 + '\n').encode())
         with patch.object(ci.subprocess, 'run', return_value=completed):
@@ -168,6 +191,58 @@ class IntegrationTests(unittest.TestCase):
         result = self.invoke()
         self.assertEqual(result.returncode, 1)
         self.assertIn(b'changed-checkbox-line', result.stdout)
+
+    def test_dispatch_development_full_task_diff_and_global_structure(self):
+        old = '- [ ] T001 preserve this entire line'
+        new = '- [x] T001 preserve this entire line'
+        self.put('specs/example/tasks.md', '# Tasks\n' + new + '\n')
+        self.write_event({'inputs': {'base_sha': self.base, 'mode': 'development',
+                                    'reviewed_task_updates': 'true'}})
+        before = self.fixture_bytes()
+        result = self.invoke('workflow_dispatch')
+        self.assertEqual(result.returncode, 0, result.stdout.decode())
+        for text in ('BASE=' + self.base, 'MODE=development', old, new, 'REVIEW',
+                     '--reviewed-task-updates', 'RESULT=PASSED exit=0'):
+            self.assertIn(text.encode(), result.stdout)
+        self.assertEqual(before, self.fixture_bytes())
+        self.assertNotIn(b'--files', result.stdout)
+        self.put('docs/target.md', '# Changed anchor\n')
+        before = self.fixture_bytes()
+        result = self.invoke('workflow_dispatch')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b'missing-fragment', result.stdout)
+        self.assertEqual(before, self.fixture_bytes())
+
+    def test_dispatch_development_without_declaration_fails_on_task_changes(self):
+        self.put('specs/example/tasks.md', '# Tasks\n- [x] T001 preserve this entire line\n')
+        self.write_event({'inputs': {'base_sha': self.base, 'mode': 'development',
+                                    'reviewed_task_updates': 'false'}})
+        result = self.invoke('workflow_dispatch')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b'REVIEW', result.stdout)
+        self.assertNotIn(b'"--reviewed-task-updates"', result.stdout)
+
+    def test_automatic_events_do_not_upgrade_even_with_spoofed_declaration(self):
+        self.put('specs/example/tasks.md', '# Tasks\n- [x] T001 preserve this entire line\n')
+        for event, base in (('push', {'before': self.base}),
+                            ('pull_request', {'pull_request': {'base': {'sha': self.base}}})):
+            with self.subTest(event=event):
+                self.write_event(dict(base, inputs={'mode': 'development', 'reviewed_task_updates': True}))
+                result = self.invoke(event)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b'MODE=maintenance', result.stdout)
+                self.assertNotIn(b'"--reviewed-task-updates"', result.stdout)
+                self.assertNotIn(b'MODE=development', result.stdout)
+
+    def test_invalid_dispatch_policy_rejects_before_checker(self):
+        self.write_event({'inputs': {'base_sha': self.base, 'reviewed_task_updates': 'true'}})
+        result = self.invoke('workflow_dispatch')
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn(b'COMMAND=', result.stdout)
+
+    def fixture_bytes(self):
+        return {str(p.relative_to(self.root)): p.read_bytes()
+                for p in self.root.rglob('*') if p.is_file()}
 
     def test_unavailable_base_fails_without_checker_or_fallback(self):
         self.write_event({'before': 'f' * 40})
